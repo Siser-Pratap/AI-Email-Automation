@@ -16,7 +16,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { hrEmail, companyName, role, emailType, notes, scheduledAt, name, jobId } = body;
+    const { hrEmail, companyName, role, emailType, notes, scheduledAt, name, jobId, messageId } = body;
 
     if (!hrEmail || !role || !emailType) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -30,6 +30,7 @@ export async function POST(req: Request) {
         emailType,
         name,
         jobId,
+        messageId,
         notes,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
       },

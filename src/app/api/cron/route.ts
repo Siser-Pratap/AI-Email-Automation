@@ -69,6 +69,9 @@ export async function GET(req: Request) {
           subject,
           html: body,
           attachments,
+          // Only FOLLOWUP emails should use threading (reply to original message)
+          // All other email types (REFERRAL, APPLICATION, INTEREST) are new standalone emails
+          replyToMessageId: entry.emailType === "FOLLOWUP" ? entry.messageId || undefined : undefined,
         });
 
         // Update entry status to SENT
@@ -77,6 +80,7 @@ export async function GET(req: Request) {
           data: {
             status: "SENT",
             lastSentAt: new Date(),
+            messageId: response.messageId,
           },
         });
 

@@ -65,6 +65,9 @@ cron.schedule("0 9 * * 1-4", async () => {
           subject,
           html: body,
           attachments,
+          // Only FOLLOWUP emails should use threading (reply to original message)
+          // All other email types (REFERRAL, APPLICATION, INTEREST) are new standalone emails
+          replyToMessageId: entry.emailType === "FOLLOWUP" ? entry.messageId || undefined : undefined,
         });
 
         await prisma.emailEntry.update({
@@ -72,6 +75,7 @@ cron.schedule("0 9 * * 1-4", async () => {
           data: {
             status: "SENT",
             lastSentAt: new Date(),
+            messageId: response.messageId,
           },
         });
 

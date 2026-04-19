@@ -20,6 +20,7 @@ model EmailEntry {
   emailType   String    // "REFERRAL", "APPLICATION", "INTEREST", "FOLLOWUP"
   name        String?   // Recipient Name
   jobId       String?   // Job ID for referrals
+  messageId   String?   // Store SMTP Message-ID for thread replies
   status      String    @default("PENDING") // "PENDING", "SENT", "FAILED"
   scheduledAt DateTime  @default(now())
   lastSentAt  DateTime?

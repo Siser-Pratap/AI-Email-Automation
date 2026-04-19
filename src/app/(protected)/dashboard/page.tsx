@@ -159,22 +159,15 @@ export default function Dashboard() {
   });
 
   const handleResend = (entry: any) => {
-    if (confirm(`Are you sure you want to resend the ${entry.emailType} email to ${entry.hrEmail}?`)) {
+    if (confirm(`Are you sure you want to resend the ${entry.emailType} email to ${entry.hrEmail}? This will send a new email and will not be threaded.`)) {
+      // Send the existing entry immediately as a new, un-threaded email
       sendSingleMutation.mutate(entry.id);
     }
   };
 
   const handleFollowUp = (entry: any) => {
-    if (confirm(`Do you want to queue a Follow-up email for ${entry.hrEmail}?`)) {
-      addMutation.mutate({
-        hrEmail: entry.hrEmail,
-        companyName: entry.companyName,
-        role: entry.role,
-        name: entry.name,
-        jobId: entry.jobId,
-        emailType: "FOLLOWUP",
-        notes: `Follow-up to original ${entry.emailType}`,
-      });
+    if (confirm(`Do you want to queue a Follow-up email for ${entry.hrEmail}? It will be sent as a reply to the original email thread.`)) {
+      sendSingleMutation.mutate(entry.id);
     }
   };
 

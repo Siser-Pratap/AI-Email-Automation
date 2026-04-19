@@ -44,16 +44,29 @@ export async function POST(req: Request) {
       });
     }
 
-    await sendEmail({
+    // Determine if this should be a threaded reply or standalone email
+    const isFollowUp = entry.emailType === "FOLLOWUP";
+    const replyToMessageId = isFollowUp ? entry.messageId || undefined : undefined;
+    
+    console.log(`[SEND-SINGLE] Entry: ${entry.id}, Type: ${entry.emailType}, IsFollowUp: ${isFollowUp}, ReplyToMessageId: ${replyToMessageId || "none"}`);
+
+    const response = await sendEmail({
       to: entry.hrEmail,
       subject,
       html: body,
       attachments,
+      // Only FOLLOWUP emails should use threading (reply to original message)
+      // All other email types (REFERRAL, APPLICATION, INTEREST) are new standalone emails
+      replyToMessageId,
     });
 
     await prisma.emailEntry.update({
       where: { id: entry.id },
-      data: { status: "SENT", lastSentAt: new Date() },
+      data: { 
+        status: "SENT", 
+        lastSentAt: new Date(),
+        messageId: response.messageId // Save the returned message-id for future follow-ups
+      },
     });
 
     await prisma.emailLog.create({

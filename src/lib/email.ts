@@ -15,19 +15,26 @@ export async function sendEmail({
   subject,
   html,
   attachments,
+  replyToMessageId,
 }: {
   to: string;
   subject: string;
   html: string;
   attachments?: any[];
+  replyToMessageId?: string;
 }) {
-  const mailOptions = {
+  const mailOptions: any = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
     subject,
     html,
     attachments,
   };
+
+  if (replyToMessageId) {
+    mailOptions.inReplyTo = replyToMessageId;
+    mailOptions.references = [replyToMessageId];
+  }
 
   return await transporter.sendMail(mailOptions);
 }
