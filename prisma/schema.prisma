@@ -1,0 +1,49 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = []
+  engineType      = "library"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model EmailEntry {
+  id          String    @id @default(uuid())
+  hrEmail     String
+  companyName String?
+  role        String
+  emailType   String    // "REFERRAL", "APPLICATION", "INTEREST"
+  status      String    @default("PENDING") // "PENDING", "SENT", "FAILED"
+  scheduledAt DateTime  @default(now())
+  lastSentAt  DateTime?
+  retryCount  Int       @default(0)
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  logs EmailLog[]
+}
+
+model EmailTemplate {
+  id        String   @id @default(uuid())
+  type      String   @unique // "REFERRAL", "APPLICATION", "INTEREST"
+  subject   String
+  body      String   // supports variables like {{company}}, {{role}}
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EmailLog {
+  id           String     @id @default(uuid())
+  emailEntryId String
+  status       String     // "SUCCESS", "FAILURE"
+  response     String?
+  timestamp    DateTime   @default(now())
+
+  emailEntry EmailEntry @relation(fields: [emailEntryId], references: [id], onDelete: Cascade)
+}
