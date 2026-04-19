@@ -5,15 +5,17 @@ import { useRouter } from "next/navigation";
 import { Lock, ArrowRight, Send, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
-  const [pin, setPin] = useState("");
+  const [pin, setPin] = useState(""); 
   const [error, setError] = useState(false);
   const router = useRouter();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pin === "171020") {
+    const validPin = process.env.NEXT_PUBLIC_ADMIN_PIN || "171020";
+    
+    if (pin === validPin) {
       // Set a simple cookie
-      document.cookie = "admin_token=171020; path=/; max-age=86400"; // 1 day expiration
+      document.cookie = `admin_token=${validPin}; path=/; max-age=86400`; // 1 day expiration
       router.push("/dashboard");
     } else {
       setError(true);

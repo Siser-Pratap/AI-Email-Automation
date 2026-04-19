@@ -9,9 +9,10 @@ export function middleware(request: NextRequest) {
   
   if (isProtected) {
     const token = request.cookies.get('admin_token')?.value;
+    const validPin = process.env.NEXT_PUBLIC_ADMIN_PIN || '171020';
     
     // Check if the token matches the fixed 6-digit PIN
-    if (token !== '171020') {
+    if (token !== validPin) {
       return NextResponse.redirect(new URL('/login', request.url));
     }
   }
