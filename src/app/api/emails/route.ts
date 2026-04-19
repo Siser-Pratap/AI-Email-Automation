@@ -7,15 +7,16 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
     return NextResponse.json(emails);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch emails" }, { status: 500 });
+  } catch (error: any) {
+    console.error("GET Emails Error:", error);
+    return NextResponse.json({ error: "Failed to fetch emails", details: error.message }, { status: 500 });
   }
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { hrEmail, companyName, role, emailType, notes, scheduledAt } = body;
+    const { hrEmail, companyName, role, emailType, notes, scheduledAt, name, jobId } = body;
 
     if (!hrEmail || !role || !emailType) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -27,6 +28,8 @@ export async function POST(req: Request) {
         companyName,
         role,
         emailType,
+        name,
+        jobId,
         notes,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
       },

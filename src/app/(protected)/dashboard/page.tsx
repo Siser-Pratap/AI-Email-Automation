@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Plus, X, Building2, Briefcase, Mail, CalendarClock, CheckCircle2, XCircle, Clock, Save, LayoutTemplate } from "lucide-react";
+import { Plus, X, Building2, Briefcase, Mail, CalendarClock, CheckCircle2, XCircle, Clock, Save, LayoutTemplate, Send, FastForward, ArchiveRestore, Archive, Pencil, User, Hash, RefreshCw, MessageSquarePlus } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -13,19 +13,24 @@ function cn(...inputs: ClassValue[]) {
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
+    name: "",
     hrEmail: "",
     companyName: "",
     role: "",
     emailType: "REFERRAL",
+    jobId: "",
     notes: "",
   });
 
-  const { data: emails, isLoading } = useQuery({
+  const { data: emails, isLoading, error } = useQuery({
     queryKey: ["emails"],
     queryFn: async () => {
       const res = await fetch("/api/emails");
-      return res.json();
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch emails");
+      return Array.isArray(data) ? data : [];
     },
   });
 
@@ -41,13 +46,136 @@ export default function Dashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
       setShowAddForm(false);
-      setFormData({ hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", notes: "" });
+      setEditingId(null);
+      setFormData({ name: "", hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", jobId: "", notes: "" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await fetch(`/api/emails/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+        headers: { "Content-Type": "application/json" },
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      setShowAddForm(false);
+      setEditingId(null);
+      setFormData({ name: "", hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", jobId: "", notes: "" });
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    addMutation.mutate(formData);
+    if (editingId) {
+      updateMutation.mutate({ id: editingId, data: formData });
+    } else {
+      addMutation.mutate(formData);
+    }
+  };
+
+  const testEmailMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const res = await fetch("/api/test-email", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      alert("Test email sent successfully! Check your inbox.");
+    },
+    onError: (error: any) => {
+      alert(`Failed to send test email: ${error.message}`);
+    }
+  });
+
+  const handleTestEmail = () => {
+    const email = window.prompt("Enter an email address to send a test email to:");
+    if (email) {
+      testEmailMutation.mutate(email);
+    }
+  };
+
+  const sendPendingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/send-pending", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      alert(data.message || "Finished processing pending emails.");
+    },
+    onError: (error: any) => {
+      alert(`Failed to send emails: ${error.message}`);
+    }
+  });
+
+  const sendSingleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch("/api/send-single", {
+        method: "POST",
+        body: JSON.stringify({ id }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+    },
+    onError: (error: any) => {
+      alert(`Failed to send email: ${error.message}`);
+    }
+  });
+
+  const handleSendPending = () => {
+    if (confirm("Are you sure you want to immediately send all pending emails?")) {
+      sendPendingMutation.mutate();
+    }
+  };
+
+  const toggleBacklogMutation = useMutation({
+    mutationFn: async ({ id, newStatus }: { id: string; newStatus: string }) => {
+      const res = await fetch(`/api/emails/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: newStatus }),
+        headers: { "Content-Type": "application/json" },
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+    },
+  });
+
+  const handleResend = (entry: any) => {
+    if (confirm(`Are you sure you want to resend the ${entry.emailType} email to ${entry.hrEmail}?`)) {
+      sendSingleMutation.mutate(entry.id);
+    }
+  };
+
+  const handleFollowUp = (entry: any) => {
+    if (confirm(`Do you want to queue a Follow-up email for ${entry.hrEmail}?`)) {
+      addMutation.mutate({
+        hrEmail: entry.hrEmail,
+        companyName: entry.companyName,
+        role: entry.role,
+        name: entry.name,
+        jobId: entry.jobId,
+        emailType: "FOLLOWUP",
+        notes: `Follow-up to original ${entry.emailType}`,
+      });
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -62,6 +190,12 @@ export default function Dashboard() {
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-red-50 text-red-700 border border-red-200 shadow-sm">
             <XCircle className="w-3.5 h-3.5" /> Failed
+          </span>
+        );
+      case "BACKLOG":
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-50 text-slate-700 border border-slate-200 shadow-sm">
+            <Archive className="w-3.5 h-3.5" /> Backlog
           </span>
         );
       default:
@@ -80,31 +214,64 @@ export default function Dashboard() {
           <h2 className="text-2xl font-bold tracking-tight text-gray-900">Campaigns</h2>
           <p className="text-sm text-gray-500 mt-1">Manage and monitor your automated HR outreach.</p>
         </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className={cn(
-            "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2",
-            showAddForm
-              ? "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 focus:ring-gray-200"
-              : "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 border border-transparent"
-          )}
-        >
-          {showAddForm ? (
-            <><X className="w-4 h-4" /> Cancel</>
-          ) : (
-            <><Plus className="w-4 h-4" /> New Campaign</>
-          )}
-        </button>
+        <div className="flex gap-3">
+          <button            onClick={handleSendPending}
+            disabled={sendPendingMutation.isPending}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50"
+          >
+            {sendPendingMutation.isPending ? "Processing..." : <><FastForward className="w-4 h-4 text-emerald-600" /> Send All Pending Now</>}
+          </button>
+          {/* <button            onClick={handleTestEmail}
+            disabled={testEmailMutation.isPending}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {testEmailMutation.isPending ? "Sending..." : <><Send className="w-4 h-4 text-indigo-600" /> Send Test Email</>}
+          </button> */}
+          <button
+            onClick={() => {
+              setShowAddForm(!showAddForm);
+              if (showAddForm) {
+                setEditingId(null);
+                setFormData({ name: "", hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", jobId: "", notes: "" });
+              }
+            }}
+            className={cn(
+              "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2",
+              showAddForm
+                ? "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 focus:ring-gray-200"
+                : "bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 border border-transparent"
+            )}
+          >
+            {showAddForm ? (
+              <><X className="w-4 h-4" /> Cancel</>
+            ) : (
+              <><Plus className="w-4 h-4" /> New Campaign</>
+            )}
+          </button>
+        </div>
       </header>
 
       {showAddForm && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden transition-all">
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50/50">
-            <h3 className="text-base font-semibold text-gray-900">Add New Recipient</h3>
-            <p className="text-sm text-gray-500">Schedule an automated email to a new HR contact.</p>
+            <h3 className="text-base font-semibold text-gray-900">{editingId ? "Edit Recipient" : "Add New Recipient"}</h3>
+            <p className="text-sm text-gray-500">{editingId ? "Update details for this automated email entry." : "Schedule an automated email to a new HR contact."}</p>
           </div>
           <form onSubmit={handleSubmit} className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <User className="w-4 h-4 text-gray-400" /> Recipient Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="John Doe"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-shadow"
+                />
+              </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
                   <Mail className="w-4 h-4 text-gray-400" /> HR Email
@@ -155,16 +322,32 @@ export default function Dashboard() {
                   <option value="REFERRAL">Referral Request</option>
                   <option value="APPLICATION">Job Application</option>
                   <option value="INTEREST">General Interest</option>
+                  <option value="FOLLOWUP">Follow-up Message</option>
                 </select>
               </div>
+              {formData.emailType === "REFERRAL" && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <Hash className="w-4 h-4 text-gray-400" /> Job ID
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. REQ-12345"
+                    value={formData.jobId}
+                    onChange={(e) => setFormData({ ...formData, jobId: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-shadow"
+                  />
+                </div>
+              )}
             </div>
             <div className="mt-8 flex justify-end">
               <button
                 type="submit"
-                disabled={addMutation.isPending}
+                disabled={addMutation.isPending || updateMutation.isPending}
                 className="inline-flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                {addMutation.isPending ? "Saving..." : <><Save className="w-4 h-4" /> Save Entry</>}
+                {addMutation.isPending || updateMutation.isPending ? "Saving..." : <><Save className="w-4 h-4" /> {editingId ? "Update Entry" : "Save Entry"}</>}
               </button>
             </div>
           </form>
@@ -174,6 +357,10 @@ export default function Dashboard() {
       {isLoading ? (
         <div className="flex justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 text-red-600 p-4 rounded-xl border border-red-200">
+          Failed to load emails: {error.message}. Please check your database connection.
         </div>
       ) : (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
@@ -191,14 +378,15 @@ export default function Dashboard() {
               <tbody className="divide-y divide-gray-100">
                 {emails?.map((entry: any) => (
                   <tr key={entry.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4">
+                  <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">
-                          {entry.hrEmail.charAt(0).toUpperCase()}
+                          {entry.name ? entry.name.charAt(0).toUpperCase() : entry.hrEmail.charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">{entry.hrEmail}</p>
-                          <p className="text-xs text-gray-500">Added {new Date(entry.createdAt).toLocaleDateString()}</p>
+                          <p className="font-medium text-gray-900">{entry.name || entry.hrEmail}</p>
+                          {entry.name && <p className="text-xs text-gray-500">{entry.hrEmail}</p>}
+                          {!entry.name && <p className="text-xs text-gray-500">Added {new Date(entry.createdAt).toLocaleDateString()}</p>}
                         </div>
                       </div>
                     </td>
@@ -215,11 +403,84 @@ export default function Dashboard() {
                       {getStatusBadge(entry.status)}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-1.5 text-gray-500 text-xs">
-                        <CalendarClock className="w-3.5 h-3.5" />
-                        {entry.lastSentAt
-                          ? `Sent: ${new Date(entry.lastSentAt).toLocaleDateString()}`
-                          : `Sch: ${new Date(entry.scheduledAt).toLocaleDateString()}`}
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-1.5 text-gray-500 text-xs">
+                          <CalendarClock className="w-3.5 h-3.5" />
+                          {entry.lastSentAt
+                            ? `Sent: ${new Date(entry.lastSentAt).toLocaleDateString()}`
+                            : `Sch: ${new Date(entry.scheduledAt).toLocaleDateString()}`}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setFormData({
+                                name: entry.name || "",
+                                hrEmail: entry.hrEmail,
+                                companyName: entry.companyName || "",
+                                role: entry.role,
+                                emailType: entry.emailType,
+                                jobId: entry.jobId || "",
+                                notes: entry.notes || "",
+                              });
+                              setEditingId(entry.id);
+                              setShowAddForm(true);
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }}
+                            className="p-1.5 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors disabled:opacity-50"
+                            title="Edit details"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          {entry.status === "BACKLOG" ? (
+                            <button
+                              onClick={() => toggleBacklogMutation.mutate({ id: entry.id, newStatus: "PENDING" })}
+                              disabled={toggleBacklogMutation.isPending}
+                              className="p-1.5 text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50"
+                              title="Restore to Pending"
+                            >
+                              <ArchiveRestore className="w-3.5 h-3.5" />
+                            </button>
+                          ) : entry.status !== "SENT" && (
+                            <>
+                              <button
+                                onClick={() => toggleBacklogMutation.mutate({ id: entry.id, newStatus: "BACKLOG" })}
+                                disabled={toggleBacklogMutation.isPending}
+                                className="p-1.5 text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50"
+                                title="Move to Backlog"
+                              >
+                                <Archive className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => sendSingleMutation.mutate(entry.id)}
+                                disabled={sendSingleMutation.isPending}
+                                className="p-1.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors disabled:opacity-50"
+                                title="Send Now"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                          {entry.status === "SENT" && (
+                            <>
+                              <button
+                                onClick={() => handleResend(entry)}
+                                disabled={sendSingleMutation.isPending}
+                                className="p-1.5 text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors disabled:opacity-50"
+                                title="Resend exact email"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleFollowUp(entry)}
+                                disabled={addMutation.isPending}
+                                className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-colors disabled:opacity-50"
+                                title="Schedule Follow-up"
+                              >
+                                <MessageSquarePlus className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </td>
                   </tr>

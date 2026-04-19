@@ -1,33 +1,26 @@
-import cron from "node-cron";
-import { prisma } from "../src/lib/prisma";
-import { sendEmail, replaceTemplateVariables } from "../src/lib/email";
-import dotenv from "dotenv";
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { sendEmail, replaceTemplateVariables } from "@/lib/email";
 import fs from "fs";
 import path from "path";
 
-dotenv.config();
-
-// Run at 9:00 AM, Monday to Thursday
-// Format: 0 9 * * 1-4
-cron.schedule("0 9 * * 1-4", async () => {
-  console.log("Running scheduled email cron job...");
-  
+export async function POST(req: Request) {
   try {
     const now = new Date();
     
-    // Pick pending entries scheduled up to now
+    // Pick all pending entries
     const pendingEmails = await prisma.emailEntry.findMany({
       where: {
         status: "PENDING",
         scheduledAt: { lte: now },
       },
-      take: 50,
     });
 
     if (pendingEmails.length === 0) {
-      console.log("No emails to send.");
-      return;
+      return NextResponse.json({ message: "No pending emails found." });
     }
+
+    const results = [];
 
     for (const entry of pendingEmails) {
       try {
@@ -51,7 +44,7 @@ cron.schedule("0 9 * * 1-4", async () => {
 
         const attachments = [];
         const resumePath = path.join(process.cwd(), "Siser_Pratap_Software_Developer.pdf");
-
+        
         if (fs.existsSync(resumePath)) {
           attachments.push({
             filename: "Siser_Pratap_Software_Developer.pdf",
@@ -83,10 +76,8 @@ cron.schedule("0 9 * * 1-4", async () => {
           },
         });
 
-        console.log(`Successfully sent email to ${entry.hrEmail}`);
+        results.push({ id: entry.id, status: "SUCCESS" });
       } catch (error: any) {
-        console.error(`Failed to send email to ${entry.hrEmail}:`, error.message);
-        
         const newRetryCount = entry.retryCount + 1;
         const newStatus = newRetryCount >= 3 ? "FAILED" : "PENDING";
 
@@ -105,11 +96,14 @@ cron.schedule("0 9 * * 1-4", async () => {
             response: error.message,
           },
         });
+
+        results.push({ id: entry.id, status: "FAILURE", error: error.message });
       }
     }
-  } catch (error) {
-    console.error("Cron script error:", error);
-  }
-});
 
-console.log("Cron job scheduled: Runs at 9:00 AM, Monday to Thursday.");
+    return NextResponse.json({ message: `Processed ${pendingEmails.length} emails.`, results });
+  } catch (error: any) {
+    console.error("Process Pending Error:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}

@@ -14,16 +14,19 @@ export async function sendEmail({
   to,
   subject,
   html,
+  attachments,
 }: {
   to: string;
   subject: string;
   html: string;
+  attachments?: any[];
 }) {
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
     subject,
     html,
+    attachments,
   };
 
   return await transporter.sendMail(mailOptions);

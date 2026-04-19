@@ -17,7 +17,9 @@ model EmailEntry {
   hrEmail     String
   companyName String?
   role        String
-  emailType   String    // "REFERRAL", "APPLICATION", "INTEREST"
+  emailType   String    // "REFERRAL", "APPLICATION", "INTEREST", "FOLLOWUP"
+  name        String?   // Recipient Name
+  jobId       String?   // Job ID for referrals
   status      String    @default("PENDING") // "PENDING", "SENT", "FAILED"
   scheduledAt DateTime  @default(now())
   lastSentAt  DateTime?
@@ -31,7 +33,7 @@ model EmailEntry {
 
 model EmailTemplate {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  type      String   @unique // "REFERRAL", "APPLICATION", "INTEREST"
+  type      String   @unique // "REFERRAL", "APPLICATION", "INTEREST", "FOLLOWUP"
   subject   String
   body      String   // supports variables like {{company}}, {{role}}
   createdAt DateTime @default(now())

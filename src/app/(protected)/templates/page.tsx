@@ -74,6 +74,7 @@ export default function TemplatesPage() {
                   <option value="REFERRAL">Referral Request</option>
                   <option value="APPLICATION">Job Application</option>
                   <option value="INTEREST">General Interest</option>
+                  <option value="FOLLOWUP">Follow-up Message</option>
                 </select>
               </div>
               <div className="space-y-1.5">

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, replaceTemplateVariables } from "@/lib/email";
+import fs from "fs";
+import path from "path";
 
 // Verify cron request (e.g., matching a secret token to prevent unauthorized access)
 export async function GET(req: Request) {
@@ -42,16 +44,31 @@ export async function GET(req: Request) {
         const variables = {
           company: entry.companyName || "your company",
           role: entry.role,
+          name: entry.name || "there",
+          jobId: entry.jobId || "",
         };
 
         const subject = replaceTemplateVariables(template.subject, variables);
         const body = replaceTemplateVariables(template.body, variables);
+
+        // Attach Resume if it exists in the project root
+        const attachments = [];
+        const resumePath = path.join(process.cwd(), "Siser_Pratap_Software_Developer.pdf");
+        
+        if (fs.existsSync(resumePath)) {
+          attachments.push({
+            filename: "Siser_Pratap_Software_Developer.pdf",
+            path: resumePath,
+            contentType: "application/pdf",
+          });
+        }
 
         // Send Email
         const response = await sendEmail({
           to: entry.hrEmail,
           subject,
           html: body,
+          attachments,
         });
 
         // Update entry status to SENT
