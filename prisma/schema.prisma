@@ -8,12 +8,12 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 model EmailEntry {
-  id          String    @id @default(uuid())
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
   hrEmail     String
   companyName String?
   role        String
@@ -30,7 +30,7 @@ model EmailEntry {
 }
 
 model EmailTemplate {
-  id        String   @id @default(uuid())
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
   type      String   @unique // "REFERRAL", "APPLICATION", "INTEREST"
   subject   String
   body      String   // supports variables like {{company}}, {{role}}
@@ -39,8 +39,8 @@ model EmailTemplate {
 }
 
 model EmailLog {
-  id           String     @id @default(uuid())
-  emailEntryId String
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  emailEntryId String     @db.ObjectId
   status       String     // "SUCCESS", "FAILURE"
   response     String?
   timestamp    DateTime   @default(now())
