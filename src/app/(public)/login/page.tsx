@@ -23,6 +23,8 @@ export default function LoginPage() {
     }
   };
 
+  console.log("Admin PIN (for testing):", process.env.NEXT_PUBLIC_ADMIN_PIN || "171020");
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
