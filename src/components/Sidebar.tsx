@@ -16,6 +16,7 @@ export function Sidebar() {
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "Templates", href: "/templates", icon: FileText },
     { name: "Logs", href: "/logs", icon: Activity },
+    { name: "Resumes", href: "/resumes", icon: FileText },
   ];
 
   return (

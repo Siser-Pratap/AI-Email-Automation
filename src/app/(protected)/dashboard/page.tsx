@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Plus, X, Building2, Briefcase, Mail, CalendarClock, CheckCircle2, XCircle, Clock, Save, LayoutTemplate, Send, FastForward, ArchiveRestore, Archive, Pencil, User, Hash, RefreshCw, MessageSquarePlus } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, X, Building2, Briefcase, Mail, CalendarClock, CheckCircle2, XCircle, Clock, Save, LayoutTemplate, Send, FastForward, ArchiveRestore, Archive, Pencil, User, Hash, RefreshCw, MessageSquarePlus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -41,14 +42,19 @@ export default function Dashboard() {
         body: JSON.stringify(newEntry),
         headers: { "Content-Type": "application/json" },
       });
+      if (!res.ok) throw new Error("Failed to create email entry");
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
+      toast.success("Email entry created successfully");
       setShowAddForm(false);
       setEditingId(null);
       setFormData({ name: "", hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", jobId: "", notes: "" });
     },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to create email entry");
+    }
   });
 
   const updateMutation = useMutation({
@@ -58,14 +64,19 @@ export default function Dashboard() {
         body: JSON.stringify(data),
         headers: { "Content-Type": "application/json" },
       });
+      if (!res.ok) throw new Error("Failed to update email entry");
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
+      toast.success("Email entry updated successfully");
       setShowAddForm(false);
       setEditingId(null);
       setFormData({ name: "", hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", jobId: "", notes: "" });
     },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to update email entry");
+    }
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -89,10 +100,26 @@ export default function Dashboard() {
       return data;
     },
     onSuccess: () => {
-      alert("Test email sent successfully! Check your inbox.");
+      toast.success("Test email sent successfully! Check your inbox.");
     },
     onError: (error: any) => {
-      alert(`Failed to send test email: ${error.message}`);
+      toast.error(`Failed to send test email: ${error.message}`);
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/emails/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete");
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      toast.success("Campaign deleted");
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to delete campaign");
     }
   });
 
@@ -112,10 +139,10 @@ export default function Dashboard() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
-      alert(data.message || "Finished processing pending emails.");
+      toast.success(data.message || "Finished processing pending emails.");
     },
     onError: (error: any) => {
-      alert(`Failed to send emails: ${error.message}`);
+      toast.error(`Failed to send emails: ${error.message}`);
     }
   });
 
@@ -130,17 +157,67 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error);
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
+      toast.success(data.message || "Email sent successfully");
     },
     onError: (error: any) => {
-      alert(`Failed to send email: ${error.message}`);
+      toast.error(`Failed to send email: ${error.message}`);
     }
   });
 
   const handleSendPending = () => {
-    if (confirm("Are you sure you want to immediately send all pending emails?")) {
-      sendPendingMutation.mutate();
+    const toastId = toast.custom((t) => (
+      <div className="bg-white rounded-lg shadow-lg p-4 border border-gray-200 flex gap-3">
+        <div className="flex-1">
+          <p className="font-semibold text-gray-900">Send All Pending Emails?</p>
+          <p className="text-sm text-gray-600 mt-1">This will immediately send all pending emails.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => toast.dismiss(t)}
+            className="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              toast.dismiss(t);
+              sendPendingMutation.mutate();
+            }}
+            className="px-3 py-1 rounded text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700"
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    ));
+  };
+
+  // Cron control state
+  const [cronActive, setCronActive] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/cron/control")
+      .then((r) => r.json())
+      .then((d) => {
+        if (mounted) setCronActive(!!d.active);
+      })
+      .catch(() => setCronActive(null));
+    return () => { mounted = false; };
+  }, []);
+
+  const toggleCron = async () => {
+    try {
+      const action = cronActive ? "stop" : "start";
+      const res = await fetch("/api/cron/control", { method: "POST", body: JSON.stringify({ action }), headers: { "Content-Type": "application/json" } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to toggle cron");
+      setCronActive(!!data.active);
+      toast.success(data.active ? "Cron resumed" : "Cron paused");
+    } catch (e: any) {
+      toast.error(e.message || "Could not change cron state");
     }
   };
 
@@ -151,24 +228,73 @@ export default function Dashboard() {
         body: JSON.stringify({ status: newStatus }),
         headers: { "Content-Type": "application/json" },
       });
+      if (!res.ok) throw new Error("Failed to update status");
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
+      const newStatus = data.status === "BACKLOG" ? "moved to backlog" : "restored from backlog";
+      toast.success(`Email ${newStatus}`);
     },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to update email status");
+    }
   });
 
   const handleResend = (entry: any) => {
-    if (confirm(`Are you sure you want to resend the ${entry.emailType} email to ${entry.hrEmail}? This will send a new email and will not be threaded.`)) {
-      // Send the existing entry immediately as a new, un-threaded email
-      sendSingleMutation.mutate(entry.id);
-    }
+    const toastId = toast.custom((t) => (
+      <div className="bg-white rounded-lg shadow-lg p-4 border border-gray-200 flex gap-3">
+        <div className="flex-1">
+          <p className="font-semibold text-gray-900">Resend Email?</p>
+          <p className="text-sm text-gray-600 mt-1">Resending {entry.emailType} to {entry.hrEmail}. This will be a new email and won't be threaded.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => toast.dismiss(t)}
+            className="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              toast.dismiss(t);
+              sendSingleMutation.mutate(entry.id);
+            }}
+            className="px-3 py-1 rounded text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Resend
+          </button>
+        </div>
+      </div>
+    ));
   };
 
   const handleFollowUp = (entry: any) => {
-    if (confirm(`Do you want to queue a Follow-up email for ${entry.hrEmail}? It will be sent as a reply to the original email thread.`)) {
-      sendSingleMutation.mutate(entry.id);
-    }
+    const toastId = toast.custom((t) => (
+      <div className="bg-white rounded-lg shadow-lg p-4 border border-gray-200 flex gap-3">
+        <div className="flex-1">
+          <p className="font-semibold text-gray-900">Send Follow-up Email?</p>
+          <p className="text-sm text-gray-600 mt-1">Queue a follow-up to {entry.hrEmail}. This will reply to the original email thread.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => toast.dismiss(t)}
+            className="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              toast.dismiss(t);
+              sendSingleMutation.mutate(entry.id);
+            }}
+            className="px-3 py-1 rounded text-sm font-medium bg-purple-600 text-white hover:bg-purple-700"
+          >
+            Send Follow-up
+          </button>
+        </div>
+      </div>
+    ));
   };
 
   const getStatusBadge = (status: string) => {
@@ -213,6 +339,19 @@ export default function Dashboard() {
             className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50"
           >
             {sendPendingMutation.isPending ? "Processing..." : <><FastForward className="w-4 h-4 text-emerald-600" /> Send All Pending Now</>}
+          </button>
+          <button
+            onClick={toggleCron}
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2"
+            title="Start/Stop Cron Job"
+          >
+            {cronActive === null ? (
+              "Cron: ?"
+            ) : cronActive ? (
+              <span className="text-sm text-emerald-700 bg-emerald-50 px-2 py-1 rounded">Cron: Running</span>
+            ) : (
+              <span className="text-sm text-red-600 bg-red-50 px-2 py-1 rounded">Cron: Paused</span>
+            )}
           </button>
           {/* <button            onClick={handleTestEmail}
             disabled={testEmailMutation.isPending}
@@ -470,6 +609,26 @@ export default function Dashboard() {
                                 title="Schedule Follow-up"
                               >
                                 <MessageSquarePlus className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  toast.custom((t) => (
+                                    <div className="bg-white rounded-lg shadow-lg p-4 border border-gray-200 flex gap-3">
+                                      <div className="flex-1">
+                                        <p className="font-semibold text-gray-900">Delete Campaign?</p>
+                                        <p className="text-sm text-gray-600 mt-1">This will permanently delete the campaign entry for {entry.hrEmail}.</p>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <button onClick={() => toast.dismiss(t)} className="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Cancel</button>
+                                        <button onClick={() => { toast.dismiss(t); deleteMutation.mutate(entry.id); }} className="px-3 py-1 rounded text-sm font-medium bg-red-600 text-white hover:bg-red-700">Delete</button>
+                                      </div>
+                                    </div>
+                                  ));
+                                }}
+                                className="p-1.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors disabled:opacity-50"
+                                title="Delete Campaign"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </>
                           )}

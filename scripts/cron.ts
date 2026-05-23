@@ -10,7 +10,30 @@ dotenv.config();
 // Run at 9:00 AM, Monday to Thursday
 // Format: 0 9 * * 1-4
 cron.schedule("0 9 * * 1-4", async () => {
-  console.log("Running scheduled email cron job...");
+  try {
+    // Check runtime cron state file - if disabled, skip working
+    const statePath = path.join(process.cwd(), "cron_state.json");
+    let active = true;
+    if (fs.existsSync(statePath)) {
+      try {
+        const raw = fs.readFileSync(statePath, "utf-8");
+        const parsed = JSON.parse(raw || "{}");
+        active = parsed.active !== false;
+      } catch (e) {
+        console.warn("Failed reading cron state, defaulting to active", e);
+        active = true;
+      }
+    }
+
+    if (!active) {
+      console.log("Cron job is currently paused; skipping run.");
+      return;
+    }
+
+    console.log("Running scheduled email cron job...");
+  } catch (err) {
+    console.error("Cron state check failed:", err);
+  }
   
   try {
     const now = new Date();

@@ -1,8 +1,9 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { FileText, Save, LayoutTemplate, PenLine, Trash2 } from "lucide-react";
+import { useState, useRef } from "react";
+import { FileText, Save, LayoutTemplate, PenLine, Trash2, Bold, Italic, Link2, List, ListOrdered } from "lucide-react";
+import { toast } from "sonner";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -10,13 +11,37 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Helper function to wrap selected text with HTML tags
+const wrapSelection = (textarea: HTMLTextAreaElement, tag: string, attributes = "") => {
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const selectedText = textarea.value.substring(start, end);
+  const openTag = `<${tag}${attributes ? ` ${attributes}` : ""}>`;
+  const closeTag = `</${tag}>`;
+  const before = textarea.value.substring(0, start);
+  const after = textarea.value.substring(end);
+  const newValue = before + openTag + selectedText + closeTag + after;
+  
+  return newValue;
+};
+
+const insertTag = (textarea: HTMLTextAreaElement, tag: string, placeholder: string) => {
+  const start = textarea.selectionStart;
+  const text = `<${tag}>${placeholder}</${tag}>`;
+  const before = textarea.value.substring(0, start);
+  const after = textarea.value.substring(start);
+  return before + text + after;
+};
+
 export default function TemplatesPage() {
   const queryClient = useQueryClient();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [formData, setFormData] = useState({
     type: "REFERRAL",
     subject: "",
     body: "",
   });
+  const [showPreview, setShowPreview] = useState(false);
 
   const { data: templates, isLoading } = useQuery({
     queryKey: ["templates"],
@@ -33,12 +58,18 @@ export default function TemplatesPage() {
         body: JSON.stringify(newTemplate),
         headers: { "Content-Type": "application/json" },
       });
+      if (!res.ok) throw new Error("Failed to save template");
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["templates"] });
+      toast.success("Template saved successfully");
       setFormData({ type: "REFERRAL", subject: "", body: "" });
+      setShowPreview(false);
     },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to save template");
+    }
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -90,16 +121,141 @@ export default function TemplatesPage() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Body <span className="text-gray-400 font-normal">(Supports {"{{company}}"}, {"{{role}}"})</span>
+                  Body <span className="text-gray-400 font-normal">(Supports HTML & {"{{company}}"}, {"{{role}}"})</span>
                 </label>
+                
+                {/* HTML Formatting Toolbar */}
+                <div className="flex flex-wrap gap-1 p-2 border border-gray-300 rounded-lg bg-gray-50 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        const newBody = wrapSelection(textareaRef.current, "strong");
+                        setFormData({ ...formData, body: newBody });
+                        textareaRef.current.focus();
+                      }
+                    }}
+                    title="Bold"
+                    className="p-2 hover:bg-gray-200 rounded transition-colors flex items-center justify-center"
+                  >
+                    <Bold className="w-4 h-4 text-gray-700" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        const newBody = wrapSelection(textareaRef.current, "em");
+                        setFormData({ ...formData, body: newBody });
+                        textareaRef.current.focus();
+                      }
+                    }}
+                    title="Italic"
+                    className="p-2 hover:bg-gray-200 rounded transition-colors flex items-center justify-center"
+                  >
+                    <Italic className="w-4 h-4 text-gray-700" />
+                  </button>
+                  <div className="border-l border-gray-300 mx-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        const newBody = insertTag(textareaRef.current, "p", "Your text here");
+                        setFormData({ ...formData, body: newBody });
+                        textareaRef.current.focus();
+                      }
+                    }}
+                    title="Paragraph"
+                    className="p-2 hover:bg-gray-200 rounded transition-colors text-xs font-medium text-gray-700"
+                  >
+                    P
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        const newBody = insertTag(textareaRef.current, "h3", "Heading");
+                        setFormData({ ...formData, body: newBody });
+                        textareaRef.current.focus();
+                      }
+                    }}
+                    title="Heading"
+                    className="p-2 hover:bg-gray-200 rounded transition-colors text-xs font-medium text-gray-700"
+                  >
+                    H3
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        const newBody = insertTag(textareaRef.current, "ul", "<li>Item</li>");
+                        setFormData({ ...formData, body: newBody });
+                        textareaRef.current.focus();
+                      }
+                    }}
+                    title="Bullet List"
+                    className="p-2 hover:bg-gray-200 rounded transition-colors flex items-center justify-center"
+                  >
+                    <List className="w-4 h-4 text-gray-700" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        const newBody = insertTag(textareaRef.current, "ol", "<li>Item</li>");
+                        setFormData({ ...formData, body: newBody });
+                        textareaRef.current.focus();
+                      }
+                    }}
+                    title="Numbered List"
+                    className="p-2 hover:bg-gray-200 rounded transition-colors flex items-center justify-center"
+                  >
+                    <ListOrdered className="w-4 h-4 text-gray-700" />
+                  </button>
+                  <div className="border-l border-gray-300 mx-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (textareaRef.current) {
+                        const newBody = insertTag(textareaRef.current, "a", "link");
+                        setFormData({ ...formData, body: newBody });
+                        textareaRef.current.focus();
+                      }
+                    }}
+                    title="Link"
+                    className="p-2 hover:bg-gray-200 rounded transition-colors flex items-center justify-center"
+                  >
+                    <Link2 className="w-4 h-4 text-gray-700" />
+                  </button>
+                  <div className="flex-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => setShowPreview(!showPreview)}
+                    className="px-3 py-1 hover:bg-gray-200 rounded transition-colors text-xs font-medium text-gray-700 bg-white border border-gray-300"
+                  >
+                    {showPreview ? "Edit" : "Preview"}
+                  </button>
+                </div>
+
+                {/* Textarea */}
                 <textarea
+                  ref={textareaRef}
                   required
-                  rows={8}
+                  rows={12}
                   value={formData.body}
                   onChange={(e) => setFormData({ ...formData, body: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-shadow resize-none"
-                  placeholder="Hi, I am interested in the {{role}} role at {{company}}..."
+                  className={cn(
+                    "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-shadow resize-none",
+                    showPreview && "hidden"
+                  )}
+                  placeholder="<p>Hi {{name}},</p>&#10;<p>Your email body here...</p>&#10;<p>Thanks and regards,<br>Siser Pratap</p>"
                 />
+
+                {/* HTML Preview */}
+                {showPreview && (
+                  <div className="w-full border border-gray-300 rounded-lg p-4 bg-white text-sm max-h-80 overflow-y-auto [&_a]:text-blue-600 [&_a:hover]:underline [&_strong]:font-bold [&_em]:italic [&_p]:mb-3 [&_h3]:font-bold [&_h3]:text-lg [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:ml-5 [&_ol]:list-decimal [&_ol]:ml-5 [&_li]:mb-1">
+                    <div dangerouslySetInnerHTML={{ __html: formData.body }} />
+                  </div>
+                )}
               </div>
               <div className="pt-2">
                 <button
@@ -148,10 +304,8 @@ export default function TemplatesPage() {
                       <span className="text-gray-400 font-normal mr-2">Subj:</span> 
                       {tpl.subject}
                     </p>
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-100">
-                      <pre className="text-sm text-gray-600 whitespace-pre-wrap font-sans leading-relaxed">
-                        {tpl.body}
-                      </pre>
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-100 max-h-64 overflow-y-auto [&_a]:text-blue-600 [&_a:hover]:underline [&_strong]:font-bold [&_em]:italic [&_p]:mb-3 [&_h3]:font-bold [&_h3]:text-lg [&_h3]:mb-2 [&_ul]:list-disc [&_ul]:ml-5 [&_ol]:list-decimal [&_ol]:ml-5 [&_li]:mb-1 text-sm text-gray-600 leading-relaxed">
+                      <div dangerouslySetInnerHTML={{ __html: tpl.body }} />
                     </div>
                   </div>
                 </div>

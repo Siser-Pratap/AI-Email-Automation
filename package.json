@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "cron": "tsx scripts/cron.ts"
+    "cron": "tsx scripts/cron.ts",
+    "seed": "tsx scripts/seed.ts",
+    "seed-templates": "tsx scripts/seed-templates.ts",
+    "seed-followup": "tsx scripts/seed-followup.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.53",
@@ -21,6 +24,7 @@
     "nodemailer": "^8.0.5",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
