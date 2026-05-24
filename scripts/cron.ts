@@ -65,7 +65,7 @@ cron.schedule("0 9 * * 1-4", async () => {
         const variables = {
           company: entry.companyName || "your company",
           role: entry.role,
-          name: entry.name || "there",
+          name: entry.name || "",
           jobId: entry.jobId || "",
         };
 
@@ -73,14 +73,9 @@ cron.schedule("0 9 * * 1-4", async () => {
         const body = replaceTemplateVariables(template.body, variables);
 
         const attachments = [];
-        const resumePath = path.join(process.cwd(), "Siser_Pratap_Software_Developer.pdf");
-
-        if (fs.existsSync(resumePath)) {
-          attachments.push({
-            filename: "Siser_Pratap_Software_Developer.pdf",
-            path: resumePath,
-            contentType: "application/pdf",
-          });
+        const resumeAttachment = getBestResumeForRole(entry.role);
+        if (resumeAttachment) {
+          attachments.push(resumeAttachment);
         }
 
         const response = await sendEmail({

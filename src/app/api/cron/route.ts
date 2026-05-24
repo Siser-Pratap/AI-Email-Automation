@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, replaceTemplateVariables } from "@/lib/email";
+import { getBestResumeForRole } from "@/lib/resume-matcher";
 import fs from "fs";
 import path from "path";
 
@@ -44,23 +45,18 @@ export async function GET(req: Request) {
         const variables = {
           company: entry.companyName || "your company",
           role: entry.role,
-          name: entry.name || "there",
+          name: entry.name || "",
           jobId: entry.jobId || "",
         };
 
         const subject = replaceTemplateVariables(template.subject, variables);
         const body = replaceTemplateVariables(template.body, variables);
 
-        // Attach Resume if it exists in the project root
+        // Attach Resume based on role
         const attachments = [];
-        const resumePath = path.join(process.cwd(), "Siser_Pratap_Software_Developer.pdf");
-        
-        if (fs.existsSync(resumePath)) {
-          attachments.push({
-            filename: "Siser_Pratap_Software_Developer.pdf",
-            path: resumePath,
-            contentType: "application/pdf",
-          });
+        const resumeAttachment = getBestResumeForRole(entry.role);
+        if (resumeAttachment) {
+          attachments.push(resumeAttachment);
         }
 
         // Send Email

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/email";
+import { getBestResumeForRole } from "@/lib/resume-matcher";
 import fs from "fs";
 import path from "path";
 
@@ -12,14 +13,9 @@ export async function POST(req: Request) {
     }
 
     const attachments = [];
-    const resumePath = path.join(process.cwd(), "Siser_Pratap_Software_Developer.pdf");
-    
-    if (fs.existsSync(resumePath)) {
-      attachments.push({
-        filename: "Siser_Pratap_Software_Developer.pdf",
-        path: resumePath,
-        contentType: "application/pdf",
-      });
+    const resumeAttachment = getBestResumeForRole("Software Engineer");
+    if (resumeAttachment) {
+      attachments.push(resumeAttachment);
     }
 
     await sendEmail({

@@ -40,7 +40,10 @@ export async function sendEmail({
 }
 
 export function replaceTemplateVariables(template: string, variables: Record<string, string>) {
-  return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
-    return variables[key] || match;
+  let result = template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+    return variables[key] !== undefined ? variables[key] : match;
   });
+  
+  // Clean up extra space before comma if a variable was empty, e.g., "Hi ," -> "Hi,"
+  return result.replace(/ \s*,/g, ',').replace(/ ,/g, ',');
 }
