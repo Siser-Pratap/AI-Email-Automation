@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { prisma } from "../src/lib/prisma";
 import { sendEmail, replaceTemplateVariables } from "../src/lib/email";
+import { getBestResumeForRole } from "../src/lib/resume-matcher";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";

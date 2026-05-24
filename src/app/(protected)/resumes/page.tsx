@@ -67,7 +67,7 @@ export default function ResumesPage() {
           <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setFile(e.target.files?.[0] || null)} className="col-span-2" />
         </div>
         <div className="flex justify-end">
-          <button type="submit" disabled={uploadMutation.isLoading} className="px-4 py-2 bg-indigo-600 text-white rounded">{uploadMutation.isLoading ? "Uploading..." : "Upload Resume"}</button>
+          <button type="submit" disabled={uploadMutation.isPending} className="px-4 py-2 bg-indigo-600 text-white rounded">{uploadMutation.isPending ? "Uploading..." : "Upload Resume"}</button>
         </div>
       </form>
 
