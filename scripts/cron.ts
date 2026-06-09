@@ -3,8 +3,6 @@ import { prisma } from "../src/lib/prisma";
 import { sendEmail, replaceTemplateVariables } from "../src/lib/email";
 import { getBestResumeForRole } from "../src/lib/resume-matcher";
 import dotenv from "dotenv";
-import fs from "fs";
-import path from "path";
 
 dotenv.config();
 
@@ -12,19 +10,8 @@ dotenv.config();
 // Format: 0 9 * * 1-4
 cron.schedule("0 9 * * 1-4", async () => {
   try {
-    // Check runtime cron state file - if disabled, skip working
-    const statePath = path.join(process.cwd(), "cron_state.json");
-    let active = true;
-    if (fs.existsSync(statePath)) {
-      try {
-        const raw = fs.readFileSync(statePath, "utf-8");
-        const parsed = JSON.parse(raw || "{}");
-        active = parsed.active !== false;
-      } catch (e) {
-        console.warn("Failed reading cron state, defaulting to active", e);
-        active = true;
-      }
-    }
+    const setting = await prisma.appSetting.findUnique({ where: { key: "cron_active" } });
+    const active = !setting || setting.value !== "false";
 
     if (!active) {
       console.log("Cron job is currently paused; skipping run.");

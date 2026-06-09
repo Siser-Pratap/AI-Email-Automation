@@ -1,46 +1,35 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+import { prisma } from "@/lib/prisma";
 
-const statePath = path.join(process.cwd(), "cron_state.json");
+const CRON_KEY = "cron_active";
 
-function readState() {
-  try {
-    if (!fs.existsSync(statePath)) return { active: true };
-    const raw = fs.readFileSync(statePath, "utf-8");
-    return JSON.parse(raw || "{}");
-  } catch (e) {
-    return { active: true };
-  }
-}
-
-function writeState(obj: any) {
-  try {
-    fs.writeFileSync(statePath, JSON.stringify(obj, null, 2));
-    return true;
-  } catch (e) {
-    return false;
-  }
+async function getCronActive(): Promise<boolean> {
+  const setting = await prisma.appSetting.findUnique({ where: { key: CRON_KEY } });
+  if (!setting) return true; // default to active
+  return setting.value !== "false";
 }
 
 export async function GET() {
-  const state = readState();
-  return NextResponse.json({ active: state.active !== false });
+  const active = await getCronActive();
+  return NextResponse.json({ active });
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { action } = body; // 'start' | 'stop'
+    const { action } = body;
     if (!action || (action !== "start" && action !== "stop")) {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
 
-    const newState = { active: action === "start" };
-    const ok = writeState(newState);
-    if (!ok) return NextResponse.json({ error: "Failed to write state" }, { status: 500 });
+    const active = action === "start";
+    await prisma.appSetting.upsert({
+      where: { key: CRON_KEY },
+      update: { value: String(active) },
+      create: { key: CRON_KEY, value: String(active) },
+    });
 
-    return NextResponse.json({ active: newState.active });
+    return NextResponse.json({ active });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

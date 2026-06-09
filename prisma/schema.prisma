@@ -50,3 +50,9 @@ model EmailLog {
 
   emailEntry EmailEntry @relation(fields: [emailEntryId], references: [id], onDelete: Cascade)
 }
+
+model AppSetting {
+  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  key   String @unique
+  value String
+}
