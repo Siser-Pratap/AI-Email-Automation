@@ -199,7 +199,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     let mounted = true;
-    fetch("/api/cron/control")
+    fetch("/api/cron/control", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (mounted) setCronActive(!!d.active);
