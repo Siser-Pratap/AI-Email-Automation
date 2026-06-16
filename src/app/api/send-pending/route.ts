@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, replaceTemplateVariables } from "@/lib/email";
 import { getBestResumeForRole } from "@/lib/resume-matcher";
-import fs from "fs";
-import path from "path";
 
 export async function POST(req: Request) {
   try {
@@ -44,7 +42,7 @@ export async function POST(req: Request) {
         const body = replaceTemplateVariables(template.body, variables);
 
         const attachments = [];
-        const resumeAttachment = getBestResumeForRole(entry.role);
+        const resumeAttachment = await getBestResumeForRole(entry.role);
         if (resumeAttachment) {
           attachments.push(resumeAttachment);
         }

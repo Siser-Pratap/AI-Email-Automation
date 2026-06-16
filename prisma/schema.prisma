@@ -56,3 +56,11 @@ model AppSetting {
   key   String @unique
   value String
 }
+
+model Resume {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  description String?
+  driveUrl    String
+  uploadedAt  DateTime @default(now())
+}

@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendEmail } from "@/lib/email";
 import { getBestResumeForRole } from "@/lib/resume-matcher";
-import fs from "fs";
-import path from "path";
 
 export async function POST(req: Request) {
   try {
@@ -13,7 +11,7 @@ export async function POST(req: Request) {
     }
 
     const attachments = [];
-    const resumeAttachment = getBestResumeForRole("Software Engineer");
+    const resumeAttachment = await getBestResumeForRole("Software Engineer");
     if (resumeAttachment) {
       attachments.push(resumeAttachment);
     }

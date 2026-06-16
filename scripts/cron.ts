@@ -61,7 +61,7 @@ cron.schedule("0 9 * * 1-4", async () => {
         const body = replaceTemplateVariables(template.body, variables);
 
         const attachments = [];
-        const resumeAttachment = getBestResumeForRole(entry.role);
+        const resumeAttachment = await getBestResumeForRole(entry.role);
         if (resumeAttachment) {
           attachments.push(resumeAttachment);
         }

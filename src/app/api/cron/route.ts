@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, replaceTemplateVariables } from "@/lib/email";
 import { getBestResumeForRole } from "@/lib/resume-matcher";
-import fs from "fs";
-import path from "path";
 
 // Verify cron request (e.g., matching a secret token to prevent unauthorized access)
 export async function GET(req: Request) {
@@ -13,8 +11,18 @@ export async function GET(req: Request) {
   }
 
   try {
+    const setting = await prisma.appSetting.findUnique({ where: { key: "cron_active" } });
+    const active = !setting || setting.value !== "false";
+    if (!active) {
+      return NextResponse.json({ message: "Cron is paused" });
+    }
+  } catch (err) {
+    console.error("Cron state check failed:", err);
+  }
+
+  try {
     const now = new Date();
-    
+
     // Pick pending entries scheduled up to now
     const pendingEmails = await prisma.emailEntry.findMany({
       where: {
@@ -54,7 +62,7 @@ export async function GET(req: Request) {
 
         // Attach Resume based on role
         const attachments = [];
-        const resumeAttachment = getBestResumeForRole(entry.role);
+        const resumeAttachment = await getBestResumeForRole(entry.role);
         if (resumeAttachment) {
           attachments.push(resumeAttachment);
         }
