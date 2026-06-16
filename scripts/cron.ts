@@ -6,9 +6,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// Run at 9:00 AM, Monday to Thursday
-// Format: 0 9 * * 1-4
-cron.schedule("0 9 * * 1-4", async () => {
+// Run at 9:00 AM IST (3:30 AM UTC), Monday to Thursday
+cron.schedule("30 3 * * 1-4", async () => {
   try {
     const setting = await prisma.appSetting.findUnique({ where: { key: "cron_active" } });
     const active = !setting || setting.value !== "false";
