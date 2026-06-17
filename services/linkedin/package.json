@@ -1,0 +1,23 @@
+{
+  "name": "linkedin-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "npx tsx index.ts",
+    "run-now": "npx tsx index.ts --run-now",
+    "setup": "npx tsx setup.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3",
+    "playwright": "1.44.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.15.7",
+    "typescript": "^5.4.5"
+  }
+}
