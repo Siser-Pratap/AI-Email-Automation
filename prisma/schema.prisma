@@ -21,13 +21,16 @@ model EmailEntry {
   name        String?   // Recipient Name
   jobId       String?   // Job ID for referrals
   messageId   String?   // Store SMTP Message-ID for thread replies
-  status      String    @default("PENDING") // "PENDING", "SENT", "FAILED"
-  scheduledAt DateTime  @default(now())
-  lastSentAt  DateTime?
-  retryCount  Int       @default(0)
-  notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  status        String    @default("PENDING") // "PENDING", "SENT", "FAILED"
+  source        String    @default("MANUAL")  // "MANUAL", "WHATSAPP", "LINKEDIN"
+  reviewStatus  String    @default("AUTO")    // "AUTO", "PENDING_REVIEW", "APPROVED"
+  rawText       String?
+  scheduledAt   DateTime  @default(now())
+  lastSentAt    DateTime?
+  retryCount    Int       @default(0)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   logs EmailLog[]
 }

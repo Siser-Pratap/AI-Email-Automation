@@ -23,13 +23,17 @@ export async function GET(req: Request) {
   try {
     const now = new Date();
 
-    // Pick pending entries scheduled up to now
+    // Pick pending entries scheduled up to now, excluding those awaiting review
     const pendingEmails = await prisma.emailEntry.findMany({
       where: {
         status: "PENDING",
         scheduledAt: { lte: now },
+        OR: [
+          { reviewStatus: "AUTO" },
+          { reviewStatus: "APPROVED" },
+        ],
       },
-      take: 50, // Process in batches
+      take: 50,
     });
 
     if (pendingEmails.length === 0) {
