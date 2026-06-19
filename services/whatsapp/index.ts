@@ -54,22 +54,36 @@ async function connectToWhatsApp() {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger),
     },
-    // Print QR in terminal if no phone number is set for pairing code
-    printQRInTerminal: !WA_PHONE_NUMBER,
+    // Never print QR — we either use pairing code or handle QR manually
+    printQRInTerminal: false,
   });
 
-  // Pairing code auth — preferred for headless servers
-  if (!sock.authState.creds.registered && WA_PHONE_NUMBER) {
-    const digits = WA_PHONE_NUMBER.replace(/[^0-9]/g, "");
-    const code = await sock.requestPairingCode(digits);
-    console.log(`\nPairing code: ${code}`);
-    console.log("Enter this in WhatsApp → Settings → Linked Devices → Link with Phone Number\n");
-  }
+  let pairingCodeRequested = false;
 
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
+
+    // Request pairing code on first QR emission — WS is open and ready at this point
+    if (qr && WA_PHONE_NUMBER && !pairingCodeRequested && !sock.authState.creds.registered) {
+      pairingCodeRequested = true;
+      try {
+        const digits = WA_PHONE_NUMBER.replace(/[^0-9]/g, "");
+        const code = await sock.requestPairingCode(digits);
+        console.log(`\nPairing code: ${code}`);
+        console.log("Enter this in WhatsApp → Settings → Linked Devices → Link with Phone Number\n");
+      } catch (err) {
+        console.error("Failed to request pairing code:", err);
+      }
+      return;
+    }
+
+    // If no phone number configured, print QR manually
+    if (qr && !WA_PHONE_NUMBER) {
+      const { default: qrcode } = await import("qrcode-terminal");
+      qrcode.generate(qr, { small: true });
+    }
 
     if (connection === "close") {
       const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;

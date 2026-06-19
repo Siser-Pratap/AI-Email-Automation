@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { groq } from "@ai-sdk/groq";
 
 export async function POST(req: Request) {
   try {
@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     `;
 
     const { text } = await generateText({
-      model: openai("gpt-4o"),
+      model: groq("llama-3.3-70b-versatile"),
       prompt,
     });
 

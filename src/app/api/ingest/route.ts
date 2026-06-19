@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateObject } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { groq } from "@ai-sdk/groq";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
   } else {
     try {
       const { object } = await generateObject({
-        model: openai("gpt-4o"),
+        model: groq("llama-3.3-70b-versatile"),
         schema: parsedDataSchema,
         prompt: `Extract the following from this message. Recruiters often write emails as "name[at]company[dot]com" or "name AT company DOT com" — normalize these to standard email format.
 Fields: hrEmail (string or null), companyName (string or null), role (string or null), name (string or null), emailType ("REFERRAL" | "APPLICATION" | "INTEREST"), notes (string or null)
