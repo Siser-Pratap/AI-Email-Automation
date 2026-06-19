@@ -6,7 +6,7 @@ import {
   Plus, X, Building2, Briefcase, Mail, CalendarClock, CheckCircle2, XCircle, Clock,
   Save, LayoutTemplate, Send, FastForward, ArchiveRestore, Archive, Pencil, User,
   Hash, RefreshCw, MessageSquarePlus, Trash2, ChevronDown, ChevronUp, ShieldCheck,
-  ShieldX, Eye,
+  ShieldX, Eye, Play,
 } from "lucide-react";
 import { toast } from "sonner";
 import { clsx, type ClassValue } from "clsx";
@@ -257,6 +257,21 @@ export default function Dashboard() {
     onError: (e: Error) => toast.error(e.message || "Failed to update email status"),
   });
 
+  const runCronMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/cron", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Cron failed");
+      return data;
+    },
+    onSuccess: (data) => {
+      invalidateAll();
+      const sent = (data.results as { status: string }[] | undefined)?.filter((r) => r.status === "SUCCESS").length ?? 0;
+      toast.success(sent > 0 ? `Cron ran — ${sent} email${sent === 1 ? "" : "s"} sent` : (data.message || "Cron ran — nothing to send"));
+    },
+    onError: (e: Error) => toast.error(`Cron failed: ${e.message}`),
+  });
+
   // ── Handlers ──────────────────────────────────────────────────────────────────
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -415,11 +430,30 @@ export default function Dashboard() {
           >
             {sendPendingMutation.isPending ? "Processing..." : <><FastForward className="w-4 h-4 text-emerald-600" /> Send All Pending Now</>}
           </button>
-          <button onClick={toggleCron} className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shadow-sm">
-            {cronActive === null ? "Cron: ?" : cronActive
-              ? <span className="text-sm text-emerald-700 bg-emerald-50 px-2 py-1 rounded">Cron: Running</span>
-              : <span className="text-sm text-red-600 bg-red-50 px-2 py-1 rounded">Cron: Paused</span>}
-          </button>
+          <div className="inline-flex items-center rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+            <button
+              onClick={toggleCron}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors hover:bg-gray-50"
+            >
+              {cronActive === null ? (
+                <span className="text-gray-400">Cron: ?</span>
+              ) : cronActive ? (
+                <span className="text-emerald-700">Cron: Running</span>
+              ) : (
+                <span className="text-red-600">Cron: Paused</span>
+              )}
+            </button>
+            <div className="w-px h-6 bg-gray-200" />
+            <button
+              onClick={() => runCronMutation.mutate()}
+              disabled={runCronMutation.isPending}
+              title="Run cron now"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <Play className="w-3.5 h-3.5" />
+              {runCronMutation.isPending ? "Running…" : "Run Now"}
+            </button>
+          </div>
           <button
             onClick={() => { setShowAddForm(!showAddForm); if (showAddForm) { setEditingId(null); setFormData({ name: "", hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", jobId: "", notes: "" }); } }}
             className={cn(
