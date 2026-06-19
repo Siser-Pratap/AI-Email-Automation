@@ -24,10 +24,21 @@ async function setup() {
 
   await page.goto("https://www.linkedin.com/login");
 
-  try {
-    // Wait up to 2 minutes for the user to complete login and reach the feed
-    await page.waitForURL("**/feed**", { timeout: 120_000 });
-  } catch {
+  // Poll until the user is on any authenticated LinkedIn page (not login/checkpoint)
+  const LOGIN_PAGES = ["/login", "/checkpoint", "/uas/", "/authwall"];
+  const deadline = Date.now() + 120_000;
+  let loggedIn = false;
+
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(1500);
+    const url = page.url();
+    if (LOGIN_PAGES.every((p) => !url.includes(p)) && url.includes("linkedin.com")) {
+      loggedIn = true;
+      break;
+    }
+  }
+
+  if (!loggedIn) {
     console.error("Timed out waiting for login. Please try again.");
     await browser.close();
     process.exit(1);
