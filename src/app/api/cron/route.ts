@@ -3,7 +3,104 @@ import { prisma } from "@/lib/prisma";
 import { sendEmail, replaceTemplateVariables } from "@/lib/email";
 import { getBestResumeForRole } from "@/lib/resume-matcher";
 
-// Verify cron request (e.g., matching a secret token to prevent unauthorized access)
+async function runCronBatch() {
+  const now = new Date();
+
+  const pendingEmails = await prisma.emailEntry.findMany({
+    where: {
+      status: "PENDING",
+      scheduledAt: { lte: now },
+      OR: [
+        { reviewStatus: "AUTO" },
+        { reviewStatus: "APPROVED" },
+      ],
+    },
+    take: 50,
+  });
+
+  if (pendingEmails.length === 0) {
+    return { message: "No emails to send", results: [] };
+  }
+
+  const results = [];
+
+  for (const entry of pendingEmails) {
+    try {
+      const template = await prisma.emailTemplate.findUnique({
+        where: { type: entry.emailType },
+      });
+
+      if (!template) {
+        throw new Error(`Template not found for type: ${entry.emailType}`);
+      }
+
+      const variables = {
+        company: entry.companyName || "your company",
+        role: entry.role,
+        name: entry.name || "",
+        jobId: entry.jobId || "",
+      };
+
+      const subject = replaceTemplateVariables(template.subject, variables);
+      const body = replaceTemplateVariables(template.body, variables);
+
+      const attachments = [];
+      const resumeAttachment = await getBestResumeForRole(entry.role);
+      if (resumeAttachment) {
+        attachments.push(resumeAttachment);
+      }
+
+      const response = await sendEmail({
+        to: entry.hrEmail,
+        subject,
+        html: body,
+        attachments,
+        replyToMessageId: entry.emailType === "FOLLOWUP" ? entry.messageId || undefined : undefined,
+      });
+
+      await prisma.emailEntry.update({
+        where: { id: entry.id },
+        data: {
+          status: "SENT",
+          lastSentAt: new Date(),
+          messageId: response.messageId,
+        },
+      });
+
+      await prisma.emailLog.create({
+        data: {
+          emailEntryId: entry.id,
+          status: "SUCCESS",
+          response: JSON.stringify(response),
+        },
+      });
+
+      results.push({ id: entry.id, status: "SUCCESS" });
+    } catch (error: any) {
+      const newRetryCount = entry.retryCount + 1;
+      const newStatus = newRetryCount >= 3 ? "FAILED" : "PENDING";
+
+      await prisma.emailEntry.update({
+        where: { id: entry.id },
+        data: { retryCount: newRetryCount, status: newStatus },
+      });
+
+      await prisma.emailLog.create({
+        data: {
+          emailEntryId: entry.id,
+          status: "FAILURE",
+          response: error.message,
+        },
+      });
+
+      results.push({ id: entry.id, status: "FAILURE", error: error.message });
+    }
+  }
+
+  return { message: "Processed batch", results };
+}
+
+// Called by Vercel cron scheduler
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -21,114 +118,19 @@ export async function GET(req: Request) {
   }
 
   try {
-    const now = new Date();
+    const result = await runCronBatch();
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("Cron Error:", error);
+    return NextResponse.json({ error: "Failed to process cron job" }, { status: 500 });
+  }
+}
 
-    // Pick pending entries scheduled up to now, excluding those awaiting review
-    const pendingEmails = await prisma.emailEntry.findMany({
-      where: {
-        status: "PENDING",
-        scheduledAt: { lte: now },
-        OR: [
-          { reviewStatus: "AUTO" },
-          { reviewStatus: "APPROVED" },
-        ],
-      },
-      take: 50,
-    });
-
-    if (pendingEmails.length === 0) {
-      return NextResponse.json({ message: "No emails to send" });
-    }
-
-    const results = [];
-
-    for (const entry of pendingEmails) {
-      try {
-        // Fetch template
-        const template = await prisma.emailTemplate.findUnique({
-          where: { type: entry.emailType },
-        });
-
-        if (!template) {
-          throw new Error(`Template not found for type: ${entry.emailType}`);
-        }
-
-        // Replace variables
-        const variables = {
-          company: entry.companyName || "your company",
-          role: entry.role,
-          name: entry.name || "",
-          jobId: entry.jobId || "",
-        };
-
-        const subject = replaceTemplateVariables(template.subject, variables);
-        const body = replaceTemplateVariables(template.body, variables);
-
-        // Attach Resume based on role
-        const attachments = [];
-        const resumeAttachment = await getBestResumeForRole(entry.role);
-        if (resumeAttachment) {
-          attachments.push(resumeAttachment);
-        }
-
-        // Send Email
-        const response = await sendEmail({
-          to: entry.hrEmail,
-          subject,
-          html: body,
-          attachments,
-          // Only FOLLOWUP emails should use threading (reply to original message)
-          // All other email types (REFERRAL, APPLICATION, INTEREST) are new standalone emails
-          replyToMessageId: entry.emailType === "FOLLOWUP" ? entry.messageId || undefined : undefined,
-        });
-
-        // Update entry status to SENT
-        await prisma.emailEntry.update({
-          where: { id: entry.id },
-          data: {
-            status: "SENT",
-            lastSentAt: new Date(),
-            messageId: response.messageId,
-          },
-        });
-
-        // Log success
-        await prisma.emailLog.create({
-          data: {
-            emailEntryId: entry.id,
-            status: "SUCCESS",
-            response: JSON.stringify(response),
-          },
-        });
-
-        results.push({ id: entry.id, status: "SUCCESS" });
-      } catch (error: any) {
-        // Update entry retryCount or mark as FAILED
-        const newRetryCount = entry.retryCount + 1;
-        const newStatus = newRetryCount >= 3 ? "FAILED" : "PENDING"; // Retry up to 3 times
-
-        await prisma.emailEntry.update({
-          where: { id: entry.id },
-          data: {
-            retryCount: newRetryCount,
-            status: newStatus,
-          },
-        });
-
-        // Log failure
-        await prisma.emailLog.create({
-          data: {
-            emailEntryId: entry.id,
-            status: "FAILURE",
-            response: error.message,
-          },
-        });
-
-        results.push({ id: entry.id, status: "FAILURE", error: error.message });
-      }
-    }
-
-    return NextResponse.json({ message: "Processed batch", results });
+// Manual trigger from the dashboard — no secret required, bypasses cron_active
+export async function POST() {
+  try {
+    const result = await runCronBatch();
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Cron Error:", error);
     return NextResponse.json({ error: "Failed to process cron job" }, { status: 500 });

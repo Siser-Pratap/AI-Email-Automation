@@ -1,0 +1,4 @@
+node_modules/
+linkedin_cookies.json
+.env
+dist/

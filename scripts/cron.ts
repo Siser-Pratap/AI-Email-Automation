@@ -25,11 +25,15 @@ cron.schedule("30 3 * * 1-4", async () => {
   try {
     const now = new Date();
     
-    // Pick pending entries scheduled up to now
+    // Pick pending entries scheduled up to now, excluding those awaiting review
     const pendingEmails = await prisma.emailEntry.findMany({
       where: {
         status: "PENDING",
         scheduledAt: { lte: now },
+        OR: [
+          { reviewStatus: "AUTO" },
+          { reviewStatus: "APPROVED" },
+        ],
       },
       take: 50,
     });
