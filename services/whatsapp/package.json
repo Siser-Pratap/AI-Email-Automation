@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "start": "npx tsx index.ts",
+    "collect": "npx tsx index.ts",
     "list-groups": "LIST_GROUPS=true npx tsx index.ts"
   },
   "dependencies": {

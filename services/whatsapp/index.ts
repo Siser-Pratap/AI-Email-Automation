@@ -2,8 +2,10 @@ import "dotenv/config";
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
+  type GroupMetadata,
   makeCacheableSignalKeyStore,
-  useMultiFileAuthState,
+  proto,
+  useMultiFileAuthState as createMultiFileAuthState,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import pino from "pino";
@@ -20,30 +22,100 @@ const WATCHED_GROUP_JIDS = (process.env.WATCHED_GROUP_JIDS || "")
   .map((j) => j.trim())
   .filter(Boolean);
 
+const groupNames = new Map<string, string>();
+const stats = {
+  received: 0,
+  captured: 0,
+  duplicates: 0,
+  invalid: 0,
+  failed: 0,
+  skipped: 0,
+};
+
 if (!MAIN_APP_URL || !CRON_SECRET) {
   console.error("Missing required env vars: MAIN_APP_URL, CRON_SECRET");
   process.exit(1);
 }
 
-async function sendToIngest(rawText: string) {
+type CaptureResponse = {
+  created?: number;
+  duplicates?: number;
+  invalid?: number;
+  errors?: number;
+  message?: string;
+};
+
+function unwrapMessage(message: proto.IMessage | null | undefined): proto.IMessage | null | undefined {
+  return message?.ephemeralMessage?.message ||
+    message?.viewOnceMessage?.message ||
+    message?.viewOnceMessageV2?.message ||
+    message?.documentWithCaptionMessage?.message ||
+    message;
+}
+
+function getMessageText(message: proto.IMessage | null | undefined) {
+  const content = unwrapMessage(message);
+
+  return content?.conversation ||
+    content?.extendedTextMessage?.text ||
+    content?.imageMessage?.caption ||
+    content?.videoMessage?.caption ||
+    content?.documentMessage?.caption ||
+    "";
+}
+
+function getMessageDate(timestamp: proto.IWebMessageInfo["messageTimestamp"]) {
+  if (typeof timestamp === "number") return new Date(timestamp * 1000);
+  if (timestamp && typeof timestamp === "object" && "toNumber" in timestamp) {
+    return new Date(timestamp.toNumber() * 1000);
+  }
+  return new Date();
+}
+
+function printSummary() {
+  console.log("\nWhatsApp capture summary:");
+  console.log(`  Received: ${stats.received}`);
+  console.log(`  Captured: ${stats.captured}`);
+  console.log(`  Duplicates: ${stats.duplicates}`);
+  console.log(`  Invalid: ${stats.invalid}`);
+  console.log(`  Failed: ${stats.failed}`);
+  console.log(`  Skipped: ${stats.skipped}\n`);
+}
+
+async function sendToCapture(message: {
+  waMessageId: string;
+  groupJid: string;
+  groupName?: string;
+  senderJid: string;
+  senderName?: string;
+  text: string;
+  messageAt: string;
+}) {
   try {
-    const res = await fetch(`${MAIN_APP_URL}/api/ingest`, {
+    const res = await fetch(`${MAIN_APP_URL}/api/whatsapp/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${CRON_SECRET}`,
       },
-      body: JSON.stringify({ rawText, source: "WHATSAPP" }),
+      body: JSON.stringify(message),
     });
-    const data = await res.json() as { message?: string };
-    console.log(`[ingest] ${res.status} — ${data.message ?? ""}`);
+    const data = await res.json() as CaptureResponse;
+
+    stats.captured += data.created ?? 0;
+    stats.duplicates += data.duplicates ?? 0;
+    stats.invalid += data.invalid ?? 0;
+    stats.failed += data.errors ?? 0;
+
+    console.log(`[capture] ${res.status} — ${data.message ?? ""} (${message.waMessageId})`);
   } catch (err) {
-    console.error("[ingest] Request failed:", err);
+    stats.failed += 1;
+    console.error("[capture] Request failed:", err);
   }
 }
 
 async function connectToWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState("./session");
+  const { state, saveCreds } = await createMultiFileAuthState("./session");
   const { version, isLatest } = await fetchLatestBaileysVersion();
   console.log(`Using WA v${version.join(".")}${isLatest ? "" : " (update available)"}`);
 
@@ -99,12 +171,15 @@ async function connectToWhatsApp() {
       if (LIST_GROUPS) {
         console.log("\nFetching groups...");
         const groups = await sock.groupFetchAllParticipating();
-        const rows = Object.values(groups).map((g: any) => ({ name: g.subject, jid: g.id }));
+        const rows = Object.values(groups as Record<string, GroupMetadata>).map((group) => ({ name: group.subject, jid: group.id }));
         console.log("\nGroups you are in:\n");
         rows.forEach((r) => console.log(`  ${r.jid}  ${r.name}`));
         console.log(`\nSet WATCHED_GROUP_JIDS=${rows.map((r) => r.jid).join(",")} in .env, then restart without LIST_GROUPS=true\n`);
         process.exit(0);
       }
+
+      const groups = await sock.groupFetchAllParticipating();
+  Object.values(groups as Record<string, GroupMetadata>).forEach((group) => groupNames.set(group.id, group.subject));
 
       if (WATCHED_GROUP_JIDS.length === 0) {
         console.warn("[warn] WATCHED_GROUP_JIDS is empty — all group messages will be processed.");
@@ -119,6 +194,8 @@ async function connectToWhatsApp() {
     if (type !== "notify") return;
 
     for (const msg of messages) {
+      stats.received += 1;
+
       if (msg.key.fromMe) continue;
 
       const jid = msg.key.remoteJid;
@@ -130,21 +207,43 @@ async function connectToWhatsApp() {
       // Filter to watched groups if configured
       if (WATCHED_GROUP_JIDS.length > 0 && !WATCHED_GROUP_JIDS.includes(jid)) continue;
 
-      const text =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        "";
+      const text = getMessageText(msg.message).trim();
 
-      if (!text) continue;
+      if (!text) {
+        stats.skipped += 1;
+        continue;
+      }
 
-      // Quick pre-filter: skip if no @ symbol (unlikely to contain an email)
-      if (!text.includes("@")) continue;
+      const messageId = msg.key.id;
+      const senderJid = msg.key.participant || msg.participant;
+      if (!messageId || !senderJid) {
+        stats.skipped += 1;
+        continue;
+      }
 
       console.log(`[msg] ${jid} → ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`);
-      await sendToIngest(text);
+      await sendToCapture({
+        waMessageId: `${jid}:${messageId}`,
+        groupJid: jid,
+        groupName: groupNames.get(jid),
+        senderJid,
+        senderName: msg.pushName || undefined,
+        text,
+        messageAt: getMessageDate(msg.messageTimestamp).toISOString(),
+      });
     }
   });
 }
+
+process.on("SIGINT", () => {
+  printSummary();
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  printSummary();
+  process.exit(0);
+});
 
 connectToWhatsApp().catch((err) => {
   console.error("Fatal:", err);

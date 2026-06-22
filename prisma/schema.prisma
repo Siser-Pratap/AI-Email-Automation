@@ -67,3 +67,17 @@ model Resume {
   driveUrl    String
   uploadedAt  DateTime @default(now())
 }
+
+model WhatsAppMessage {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  waMessageId String    @unique
+  groupJid    String
+  groupName   String?
+  senderJid   String
+  senderName  String?
+  text        String
+  messageAt   DateTime
+  analyzedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
