@@ -80,4 +80,38 @@ model WhatsAppMessage {
   analyzedAt  DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  lead WhatsAppLead?
+}
+
+model WhatsAppLead {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  messageId         String   @unique @db.ObjectId
+  category          String
+  tags              String[]
+  confidence        Float
+  personName        String?
+  companyName       String?
+  role              String?
+  location          String?
+  emails            String[]
+  phones            String[]
+  linkedinUrls      String[]
+  websiteUrls       String[]
+  twitterUrls       String[]
+  githubUrls        String[]
+  portfolioUrls     String[]
+  recommendedAction String?
+  outreachChannel   String?
+  emailType         String?
+  notes             String?
+  reviewStatus      String   @default("PENDING_REVIEW")
+  emailEntryId      String?  @db.ObjectId
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  message WhatsAppMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([category])
+  @@index([reviewStatus])
 }
