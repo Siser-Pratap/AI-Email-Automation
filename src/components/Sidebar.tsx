@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FileText, Activity, Send, LogOut } from "lucide-react";
+import { LayoutDashboard, FileText, Activity, Send, LogOut, MessageCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -25,8 +25,20 @@ export function Sidebar() {
 
   const reviewCount = data?.count ?? 0;
 
+  const { data: whatsAppReviewData } = useQuery({
+    queryKey: ["whatsapp-review-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/whatsapp/leads/review-count");
+      return res.json() as Promise<{ count: number }>;
+    },
+    refetchInterval: 30_000,
+  });
+
+  const whatsAppReviewCount = whatsAppReviewData?.count ?? 0;
+
   const navItems = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard, badge: reviewCount },
+    { name: "WhatsApp", href: "/whatsapp", icon: MessageCircle, badge: whatsAppReviewCount },
     { name: "Templates", href: "/templates", icon: FileText },
     { name: "Logs", href: "/logs", icon: Activity },
     { name: "Resumes", href: "/resumes", icon: FileText },
