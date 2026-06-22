@@ -46,7 +46,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
         role: lead.role ?? "Unknown",
         name: lead.personName ?? undefined,
         emailType: lead.emailType ?? "INTEREST",
-        notes: lead.notes ?? lead.recommendedAction ?? undefined,
+        notes: lead.outreachBody ?? lead.notes ?? lead.recommendedAction ?? undefined,
         status: "PENDING",
         source: "WHATSAPP",
         reviewStatus: "APPROVED",

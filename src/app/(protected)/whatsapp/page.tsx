@@ -12,6 +12,7 @@ import {
   Search,
   ShieldCheck,
   ShieldX,
+  Wand2,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -52,6 +53,10 @@ type WhatsAppLead = {
   recommendedAction: string | null;
   outreachChannel: string | null;
   emailType: string | null;
+  outreachSubject: string | null;
+  outreachBody: string | null;
+  outreachType: string | null;
+  outreachGeneratedAt: string | null;
   notes: string | null;
   reviewStatus: string;
   emailEntryId: string | null;
@@ -116,6 +121,7 @@ function hasContactType(lead: WhatsAppLead, type: string) {
 }
 
 function buildIntro(lead: WhatsAppLead) {
+  if (lead.outreachBody) return lead.outreachBody;
   const name = lead.personName ? ` ${lead.personName}` : "";
   const company = lead.companyName ? ` at ${lead.companyName}` : "";
   const context = lead.role || lead.category.toLowerCase().replaceAll("_", " ");
@@ -205,6 +211,20 @@ export default function WhatsAppLeadsPage() {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
       queryClient.invalidateQueries({ queryKey: ["review-count"] });
       toast.success(payload.message ?? "Email entry created");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const generateOutreachMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/whatsapp/leads/${id}/generate-outreach`, { method: "POST" });
+      const payload = await res.json() as WhatsAppLead | { error?: string };
+      if (!res.ok) throw new Error("error" in payload && payload.error ? payload.error : "Failed to generate outreach");
+      return payload as WhatsAppLead;
+    },
+    onSuccess: () => {
+      invalidate();
+      toast.success("Outreach draft generated");
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -350,6 +370,18 @@ export default function WhatsAppLeadsPage() {
                         <p className="text-sm text-gray-700 line-clamp-4">{lead.message.text}</p>
                         <p className="text-xs text-gray-500">From {lead.message.senderName ?? lead.message.senderJid}</p>
                         {lead.notes ? <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">{lead.notes}</p> : null}
+                        {lead.outreachBody ? (
+                          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-xs text-gray-700 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-indigo-700">{lead.outreachType ? label(lead.outreachType) : "Outreach draft"}</span>
+                              <button onClick={() => copyText([lead.outreachSubject ? `Subject: ${lead.outreachSubject}` : "", lead.outreachBody ?? ""].filter(Boolean).join("\n\n"), "Outreach copied")} className="text-indigo-700 hover:text-indigo-900">
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                            {lead.outreachSubject ? <p className="font-medium text-gray-800">Subject: {lead.outreachSubject}</p> : null}
+                            <p className="whitespace-pre-wrap">{lead.outreachBody}</p>
+                          </div>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-5 py-5 align-top">
@@ -364,6 +396,9 @@ export default function WhatsAppLeadsPage() {
                           </button>
                           <button onClick={() => createEmailMutation.mutate(lead.id)} disabled={lead.reviewStatus !== "APPROVED" || lead.emails.length === 0 || Boolean(lead.emailEntryId)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
                             <MailPlus className="w-3.5 h-3.5" /> Email
+                          </button>
+                          <button onClick={() => generateOutreachMutation.mutate(lead.id)} disabled={lead.reviewStatus === "DISCARDED" || lead.category === "IGNORE" || generateOutreachMutation.isPending} className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-medium text-white hover:bg-cyan-700 disabled:opacity-50">
+                            <Wand2 className="w-3.5 h-3.5" /> Draft
                           </button>
                           <button onClick={() => copyText(buildIntro(lead), "Intro copied")} className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50">
                             <Copy className="w-3.5 h-3.5" /> Intro

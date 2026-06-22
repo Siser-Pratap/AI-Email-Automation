@@ -104,6 +104,10 @@ model WhatsAppLead {
   recommendedAction String?
   outreachChannel   String?
   emailType         String?
+  outreachSubject   String?
+  outreachBody      String?
+  outreachType      String?
+  outreachGeneratedAt DateTime?
   notes             String?
   reviewStatus      String   @default("PENDING_REVIEW")
   emailEntryId      String?  @db.ObjectId
