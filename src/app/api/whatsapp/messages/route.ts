@@ -17,6 +17,11 @@ type WhatsAppMessageInput = {
   messageAt: string;
 };
 
+function isAuthorized(req: Request) {
+  const authHeader = req.headers.get("authorization");
+  return !process.env.CRON_SECRET || authHeader === `Bearer ${process.env.CRON_SECRET}`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -77,9 +82,51 @@ async function saveMessage(input: WhatsAppMessageInput): Promise<CaptureResult> 
   }
 }
 
+export async function GET(req: Request) {
+  if (!isAuthorized(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const url = new URL(req.url);
+  const sinceHours = Number(url.searchParams.get("sinceHours") ?? process.env.ANALYZE_SINCE_HOURS ?? "24");
+  const limit = Math.min(Number(url.searchParams.get("limit") ?? "100"), 500);
+  const includeAnalyzed = url.searchParams.get("includeAnalyzed") === "true";
+  const safeSinceHours = Number.isFinite(sinceHours) && sinceHours > 0 ? sinceHours : 24;
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 100;
+  const since = new Date(Date.now() - safeSinceHours * 60 * 60 * 1000);
+
+  const messages = await prisma.whatsAppMessage.findMany({
+    where: {
+      messageAt: { gte: since },
+      ...(includeAnalyzed ? {} : { analyzedAt: null }),
+    },
+    orderBy: { messageAt: "asc" },
+    take: safeLimit,
+    select: {
+      id: true,
+      waMessageId: true,
+      groupJid: true,
+      groupName: true,
+      senderJid: true,
+      senderName: true,
+      text: true,
+      messageAt: true,
+      analyzedAt: true,
+    },
+  });
+
+  return NextResponse.json({
+    messages,
+    count: messages.length,
+    since: since.toISOString(),
+    sinceHours: safeSinceHours,
+    includeAnalyzed,
+    limit: safeLimit,
+  });
+}
+
 export async function POST(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isAuthorized(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

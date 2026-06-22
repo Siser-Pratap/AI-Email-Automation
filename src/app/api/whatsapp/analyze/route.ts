@@ -75,6 +75,7 @@ const analysisItemSchema = z.object({
   waMessageId: z.string().trim().min(1).optional(),
   analysis: leadAnalysisSchema.optional(),
   createEmailEntry: z.boolean().optional(),
+  dryRun: z.boolean().optional(),
 }).refine((value) => value.messageId || value.waMessageId, {
   message: "messageId or waMessageId is required",
 });
@@ -92,7 +93,7 @@ type AnalysisResult = {
   analysisSource?: "provided" | "ai" | "fallback";
   category?: z.infer<typeof leadCategorySchema>;
   confidence?: number;
-  status: "saved" | "invalid" | "not_found" | "error";
+  status: "saved" | "dry_run" | "invalid" | "not_found" | "error";
   error?: string;
 };
 
@@ -316,7 +317,7 @@ async function maybeCreateEmailEntry(createEmailEntry: boolean | undefined, anal
   });
 }
 
-async function processAnalysis(rawItem: unknown): Promise<AnalysisResult> {
+async function processAnalysis(rawItem: unknown, globalDryRun: boolean): Promise<AnalysisResult> {
   const parsed = analysisItemSchema.safeParse(rawItem);
   if (!parsed.success) {
     return { status: "invalid", error: "Invalid analysis payload" };
@@ -348,6 +349,19 @@ async function processAnalysis(rawItem: unknown): Promise<AnalysisResult> {
 
     const analysis = applyConfidencePolicy(buildAnalysis(generatedAnalysis, extractedContacts), extractedContacts);
     const emails = normalizeEmails(analysis.emails);
+
+    if (globalDryRun || item.dryRun) {
+      return {
+        status: "dry_run",
+        messageId: message.id,
+        waMessageId: message.waMessageId,
+        extractedContacts,
+        analysisSource,
+        category: analysis.category,
+        confidence: analysis.confidence,
+      };
+    }
+
     const duplicateEmailEntries = emails.length > 0
       ? await prisma.emailEntry.findMany({
         where: { hrEmail: { in: emails } },
@@ -441,10 +455,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  const globalDryRun = isRecord(body) && body.dryRun === true;
   const rawItems = isRecord(body) && Array.isArray(body.analyses) ? body.analyses : [body];
-  const results = await Promise.all(rawItems.map(processAnalysis));
+  const results = await Promise.all(rawItems.map((rawItem) => processAnalysis(rawItem, globalDryRun)));
 
   const saved = results.filter((result) => result.status === "saved").length;
+  const dryRun = results.filter((result) => result.status === "dry_run").length;
   const invalid = results.filter((result) => result.status === "invalid").length;
   const notFound = results.filter((result) => result.status === "not_found").length;
   const errors = results.filter((result) => result.status === "error").length;
@@ -452,6 +468,7 @@ export async function POST(req: Request) {
   return NextResponse.json({
     message: "WhatsApp lead analyses processed",
     saved,
+    dryRun,
     invalid,
     notFound,
     errors,

@@ -5,7 +5,9 @@
   "scripts": {
     "start": "npx tsx index.ts",
     "collect": "npx tsx index.ts",
-    "list-groups": "LIST_GROUPS=true npx tsx index.ts"
+    "list-groups": "LIST_GROUPS=true npx tsx index.ts",
+    "analyze": "npx tsx daily.ts",
+    "daily": "npx tsx daily.ts"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
