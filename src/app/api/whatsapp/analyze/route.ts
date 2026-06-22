@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { extractWhatsAppContacts, type ExtractedWhatsAppContacts } from "@/lib/whatsapp-contact-extractor";
 
 const leadCategorySchema = z.enum([
   "REFERRAL_EMAIL_FOUND",
@@ -45,13 +46,13 @@ const leadAnalysisSchema = z.object({
 const analysisItemSchema = z.object({
   messageId: z.string().trim().min(1).optional(),
   waMessageId: z.string().trim().min(1).optional(),
-  analysis: leadAnalysisSchema,
+  analysis: leadAnalysisSchema.optional(),
   createEmailEntry: z.boolean().optional(),
 }).refine((value) => value.messageId || value.waMessageId, {
   message: "messageId or waMessageId is required",
 });
 
-type AnalysisItem = z.infer<typeof analysisItemSchema>;
+type LeadAnalysis = z.infer<typeof leadAnalysisSchema>;
 
 type AnalysisResult = {
   waMessageId?: string;
@@ -60,6 +61,7 @@ type AnalysisResult = {
   emailEntryId?: string;
   duplicateEmailEntryIds?: string[];
   duplicateLeadIds?: string[];
+  extractedContacts?: ExtractedWhatsAppContacts;
   status: "saved" | "invalid" | "not_found" | "error";
   error?: string;
 };
@@ -82,10 +84,38 @@ function normalizeEmails(values: string[] | undefined) {
   return normalizeList(values, (value) => value.trim().toLowerCase()).filter((value) => emailPattern.test(value));
 }
 
-async function maybeCreateEmailEntry(item: AnalysisItem, message: { id: string; text: string }, emails: string[], existingEmailEntryId: string | null | undefined) {
-  const { analysis } = item;
+function mergeContactLists(first: string[] | undefined, second: string[] | undefined) {
+  return normalizeList([...(first ?? []), ...(second ?? [])]);
+}
 
-  if (!item.createEmailEntry || existingEmailEntryId || analysis.reviewStatus !== "APPROVED") {
+function buildAnalysis(analysis: LeadAnalysis | undefined, extractedContacts: ExtractedWhatsAppContacts): LeadAnalysis {
+  const hasContacts = extractedContacts.emails.length > 0 || extractedContacts.phones.length > 0 || extractedContacts.urls.length > 0;
+
+  return {
+    category: analysis?.category ?? (hasContacts ? "LOW_SIGNAL" : "IGNORE"),
+    tags: normalizeList(analysis?.tags),
+    confidence: analysis?.confidence ?? (hasContacts ? 0.35 : 0.1),
+    personName: analysis?.personName,
+    companyName: analysis?.companyName,
+    role: analysis?.role,
+    location: analysis?.location,
+    emails: normalizeEmails([...(extractedContacts.emails ?? []), ...(analysis?.emails ?? [])]),
+    phones: mergeContactLists(extractedContacts.phones, analysis?.phones),
+    linkedinUrls: mergeContactLists(extractedContacts.linkedinUrls, analysis?.linkedinUrls),
+    websiteUrls: mergeContactLists(extractedContacts.websiteUrls, analysis?.websiteUrls),
+    twitterUrls: mergeContactLists(extractedContacts.twitterUrls, analysis?.twitterUrls),
+    githubUrls: mergeContactLists(extractedContacts.githubUrls, analysis?.githubUrls),
+    portfolioUrls: mergeContactLists(extractedContacts.portfolioUrls, analysis?.portfolioUrls),
+    recommendedAction: analysis?.recommendedAction ?? (hasContacts ? "Review extracted contact details manually." : null),
+    outreachChannel: analysis?.outreachChannel,
+    emailType: analysis?.emailType,
+    notes: analysis?.notes ?? (hasContacts ? `Deterministic contacts extracted. Raw phone matches: ${extractedContacts.phoneRawTexts.join(", ") || "none"}.` : "No deterministic contacts found."),
+    reviewStatus: analysis?.reviewStatus ?? "PENDING_REVIEW",
+  };
+}
+
+async function maybeCreateEmailEntry(createEmailEntry: boolean | undefined, analysis: LeadAnalysis, message: { id: string; text: string }, emails: string[], existingEmailEntryId: string | null | undefined) {
+  if (!createEmailEntry || existingEmailEntryId || analysis.reviewStatus !== "APPROVED") {
     return undefined;
   }
 
@@ -136,7 +166,9 @@ async function processAnalysis(rawItem: unknown): Promise<AnalysisResult> {
       return { status: "not_found", messageId: item.messageId, waMessageId: item.waMessageId };
     }
 
-    const emails = normalizeEmails(item.analysis.emails);
+    const extractedContacts = extractWhatsAppContacts(message.text);
+    const analysis = buildAnalysis(item.analysis, extractedContacts);
+    const emails = normalizeEmails(analysis.emails);
     const duplicateEmailEntries = emails.length > 0
       ? await prisma.emailEntry.findMany({
         where: { hrEmail: { in: emails } },
@@ -155,25 +187,25 @@ async function processAnalysis(rawItem: unknown): Promise<AnalysisResult> {
       : [];
 
     const leadData = {
-      category: item.analysis.category,
-      tags: normalizeList(item.analysis.tags),
-      confidence: item.analysis.confidence,
-      personName: normalizeNullable(item.analysis.personName),
-      companyName: normalizeNullable(item.analysis.companyName),
-      role: normalizeNullable(item.analysis.role),
-      location: normalizeNullable(item.analysis.location),
+      category: analysis.category,
+      tags: normalizeList(analysis.tags),
+      confidence: analysis.confidence,
+      personName: normalizeNullable(analysis.personName),
+      companyName: normalizeNullable(analysis.companyName),
+      role: normalizeNullable(analysis.role),
+      location: normalizeNullable(analysis.location),
       emails,
-      phones: normalizeList(item.analysis.phones),
-      linkedinUrls: normalizeList(item.analysis.linkedinUrls),
-      websiteUrls: normalizeList(item.analysis.websiteUrls),
-      twitterUrls: normalizeList(item.analysis.twitterUrls),
-      githubUrls: normalizeList(item.analysis.githubUrls),
-      portfolioUrls: normalizeList(item.analysis.portfolioUrls),
-      recommendedAction: normalizeNullable(item.analysis.recommendedAction),
-      outreachChannel: normalizeNullable(item.analysis.outreachChannel),
-      emailType: item.analysis.emailType ?? null,
-      notes: normalizeNullable(item.analysis.notes),
-      reviewStatus: item.analysis.reviewStatus ?? "PENDING_REVIEW",
+      phones: normalizeList(analysis.phones),
+      linkedinUrls: normalizeList(analysis.linkedinUrls),
+      websiteUrls: normalizeList(analysis.websiteUrls),
+      twitterUrls: normalizeList(analysis.twitterUrls),
+      githubUrls: normalizeList(analysis.githubUrls),
+      portfolioUrls: normalizeList(analysis.portfolioUrls),
+      recommendedAction: normalizeNullable(analysis.recommendedAction),
+      outreachChannel: normalizeNullable(analysis.outreachChannel),
+      emailType: analysis.emailType ?? null,
+      notes: normalizeNullable(analysis.notes),
+      reviewStatus: analysis.reviewStatus ?? "PENDING_REVIEW",
     };
 
     let lead = await prisma.whatsAppLead.upsert({
@@ -185,7 +217,7 @@ async function processAnalysis(rawItem: unknown): Promise<AnalysisResult> {
       update: leadData,
     });
 
-    const emailEntry = await maybeCreateEmailEntry(item, message, emails, lead.emailEntryId);
+    const emailEntry = await maybeCreateEmailEntry(item.createEmailEntry, analysis, message, emails, lead.emailEntryId);
     if (emailEntry) {
       lead = await prisma.whatsAppLead.update({
         where: { id: lead.id },
@@ -206,6 +238,7 @@ async function processAnalysis(rawItem: unknown): Promise<AnalysisResult> {
       emailEntryId: emailEntry?.id ?? lead.emailEntryId ?? undefined,
       duplicateEmailEntryIds: duplicateEmailEntries.map((entry) => entry.id),
       duplicateLeadIds: existingDuplicateLeads.map((duplicateLead) => duplicateLead.id),
+      extractedContacts,
     };
   } catch (error) {
     console.error("WhatsApp lead analysis save failed:", error);
