@@ -16,6 +16,9 @@ const MAIN_APP_URL = process.env.MAIN_APP_URL;
 const CRON_SECRET = process.env.CRON_SECRET;
 const WA_PHONE_NUMBER = process.env.WA_PHONE_NUMBER;
 const LIST_GROUPS = process.env.LIST_GROUPS === "true";
+const CAPTURE_HISTORY_ON_START = process.env.CAPTURE_HISTORY_ON_START !== "false";
+const CAPTURE_SINCE_HOURS = Number(process.env.CAPTURE_SINCE_HOURS ?? process.env.ANALYZE_SINCE_HOURS ?? "24");
+const DEBUG_CAPTURE = process.env.DEBUG_CAPTURE === "true";
 
 const WATCHED_GROUP_JIDS = (process.env.WATCHED_GROUP_JIDS || "")
   .split(",")
@@ -25,12 +28,25 @@ const WATCHED_GROUP_JIDS = (process.env.WATCHED_GROUP_JIDS || "")
 const groupNames = new Map<string, string>();
 const stats = {
   received: 0,
+  historyReceived: 0,
   captured: 0,
   duplicates: 0,
   invalid: 0,
   failed: 0,
-  skipped: 0,
+  skipped: {
+    fromMe: 0,
+    noJid: 0,
+    nonGroup: 0,
+    unwatchedGroup: 0,
+    tooOld: 0,
+    noText: 0,
+    noMessageIdOrSender: 0,
+  },
 };
+
+const seenGroups = new Set<string>();
+const capturedByGroup = new Map<string, number>();
+const historyByGroup = new Map<string, number>();
 
 if (!MAIN_APP_URL || !CRON_SECRET) {
   console.error("Missing required env vars: MAIN_APP_URL, CRON_SECRET");
@@ -72,14 +88,107 @@ function getMessageDate(timestamp: proto.IWebMessageInfo["messageTimestamp"]) {
   return new Date();
 }
 
+function getCaptureSinceDate() {
+  const safeHours = Number.isFinite(CAPTURE_SINCE_HOURS) && CAPTURE_SINCE_HOURS > 0 ? CAPTURE_SINCE_HOURS : 24;
+  return new Date(Date.now() - safeHours * 60 * 60 * 1000);
+}
+
 function printSummary() {
   console.log("\nWhatsApp capture summary:");
   console.log(`  Received: ${stats.received}`);
+  console.log(`  History received: ${stats.historyReceived}`);
   console.log(`  Captured: ${stats.captured}`);
   console.log(`  Duplicates: ${stats.duplicates}`);
   console.log(`  Invalid: ${stats.invalid}`);
   console.log(`  Failed: ${stats.failed}`);
-  console.log(`  Skipped: ${stats.skipped}\n`);
+  console.log("  Skipped:");
+  Object.entries(stats.skipped).forEach(([reason, count]) => console.log(`    ${reason}: ${count}`));
+
+  if (historyByGroup.size > 0 || capturedByGroup.size > 0) {
+    console.log("  Group activity:");
+    Array.from(new Set([...historyByGroup.keys(), ...capturedByGroup.keys()]))
+      .sort()
+      .forEach((jid) => {
+        console.log(`    ${groupNames.get(jid) ?? jid}: history=${historyByGroup.get(jid) ?? 0}, captured=${capturedByGroup.get(jid) ?? 0}`);
+      });
+  }
+
+  console.log("");
+}
+
+function incrementMap(map: Map<string, number>, key: string) {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function debugSkip(reason: keyof typeof stats.skipped, jid?: string, detail?: string) {
+  stats.skipped[reason] += 1;
+  if (DEBUG_CAPTURE) {
+    console.log(`[skip:${reason}] ${jid ?? "unknown"}${detail ? ` — ${detail}` : ""}`);
+  }
+}
+
+async function processMessage(msg: proto.IWebMessageInfo, source: "live" | "history") {
+  if (source === "live") {
+    stats.received += 1;
+  } else {
+    stats.historyReceived += 1;
+  }
+
+  if (msg.key.fromMe) {
+    debugSkip("fromMe", msg.key.remoteJid ?? undefined);
+    return;
+  }
+
+  const jid = msg.key.remoteJid;
+  if (!jid) {
+    debugSkip("noJid");
+    return;
+  }
+
+  seenGroups.add(jid);
+  if (source === "history") incrementMap(historyByGroup, jid);
+
+  if (!jid.endsWith("@g.us")) {
+    debugSkip("nonGroup", jid);
+    return;
+  }
+
+  if (WATCHED_GROUP_JIDS.length > 0 && !WATCHED_GROUP_JIDS.includes(jid)) {
+    debugSkip("unwatchedGroup", jid);
+    return;
+  }
+
+  const messageAt = getMessageDate(msg.messageTimestamp);
+  if (messageAt < getCaptureSinceDate()) {
+    debugSkip("tooOld", jid, messageAt.toISOString());
+    return;
+  }
+
+  const text = getMessageText(msg.message).trim();
+
+  if (!text) {
+    debugSkip("noText", jid);
+    return;
+  }
+
+  const messageId = msg.key.id;
+  const senderJid = msg.key.participant || msg.participant;
+  if (!messageId || !senderJid) {
+    debugSkip("noMessageIdOrSender", jid);
+    return;
+  }
+
+  console.log(`[${source === "history" ? "history" : "msg"}] ${jid} → ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`);
+  await sendToCapture({
+    waMessageId: `${jid}:${messageId}`,
+    groupJid: jid,
+    groupName: groupNames.get(jid),
+    senderJid,
+    senderName: msg.pushName || undefined,
+    text,
+    messageAt: messageAt.toISOString(),
+  });
+  incrementMap(capturedByGroup, jid);
 }
 
 async function sendToCapture(message: {
@@ -122,6 +231,8 @@ async function connectToWhatsApp() {
   const sock = makeWASocket({
     version,
     logger,
+    syncFullHistory: CAPTURE_HISTORY_ON_START,
+    shouldSyncHistoryMessage: () => CAPTURE_HISTORY_ON_START,
     auth: {
       creds: state.creds,
       keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -160,8 +271,23 @@ async function connectToWhatsApp() {
     if (connection === "close") {
       const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
       const loggedOut = reason === DisconnectReason.loggedOut;
-      console.log(`Connection closed (reason: ${reason}). ${loggedOut ? "Logged out — delete ./session and restart." : "Reconnecting in 3s..."}`);
-      if (!loggedOut) setTimeout(connectToWhatsApp, 3000);
+      const replaced = reason === DisconnectReason.connectionReplaced;
+      const badSession = reason === DisconnectReason.badSession;
+
+      if (replaced) {
+        console.error("Connection replaced by another WhatsApp Web/Baileys session. Stop other collectors or linked web sessions, then restart this service.");
+        printSummary();
+        process.exit(1);
+      }
+
+      if (loggedOut || badSession) {
+        console.error(`Connection closed (reason: ${reason}). Delete or move ./session, unlink this device in WhatsApp, then pair again.`);
+        printSummary();
+        process.exit(1);
+      }
+
+      console.log(`Connection closed (reason: ${reason}). Reconnecting in 3s...`);
+      setTimeout(connectToWhatsApp, 3000);
       return;
     }
 
@@ -179,7 +305,16 @@ async function connectToWhatsApp() {
       }
 
       const groups = await sock.groupFetchAllParticipating();
-  Object.values(groups as Record<string, GroupMetadata>).forEach((group) => groupNames.set(group.id, group.subject));
+      Object.values(groups as Record<string, GroupMetadata>).forEach((group) => groupNames.set(group.id, group.subject || group.id));
+      console.log(`Participating groups: ${groupNames.size}`);
+      if (DEBUG_CAPTURE) {
+        Object.entries(groups as Record<string, GroupMetadata>)
+          .sort(([, left], [, right]) => (left.subject || left.id).localeCompare(right.subject || right.id))
+          .forEach(([jid, group]) => {
+            const watched = WATCHED_GROUP_JIDS.length === 0 || WATCHED_GROUP_JIDS.includes(jid);
+            console.log(`  ${watched ? "watching" : "not watching"} ${jid} ${group.subject || "(no subject)"}`);
+          });
+      }
 
       if (WATCHED_GROUP_JIDS.length === 0) {
         console.warn("[warn] WATCHED_GROUP_JIDS is empty — all group messages will be processed.");
@@ -187,50 +322,26 @@ async function connectToWhatsApp() {
       } else {
         console.log(`Watching ${WATCHED_GROUP_JIDS.length} group(s): ${WATCHED_GROUP_JIDS.join(", ")}`);
       }
+
+      if (CAPTURE_HISTORY_ON_START) {
+        console.log(`History capture enabled for messages from the last ${Number.isFinite(CAPTURE_SINCE_HOURS) ? CAPTURE_SINCE_HOURS : 24} hour(s), when WhatsApp/Baileys provides history sync events.`);
+      }
+    }
+  });
+
+  sock.ev.on("messaging-history.set", async ({ messages }) => {
+    if (!CAPTURE_HISTORY_ON_START) return;
+
+    for (const msg of messages) {
+      await processMessage(msg, "history");
     }
   });
 
   sock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (type !== "notify") return;
+    if (type !== "notify" && (!CAPTURE_HISTORY_ON_START || type !== "append")) return;
 
     for (const msg of messages) {
-      stats.received += 1;
-
-      if (msg.key.fromMe) continue;
-
-      const jid = msg.key.remoteJid;
-      if (!jid) continue;
-
-      // Only process group messages
-      if (!jid.endsWith("@g.us")) continue;
-
-      // Filter to watched groups if configured
-      if (WATCHED_GROUP_JIDS.length > 0 && !WATCHED_GROUP_JIDS.includes(jid)) continue;
-
-      const text = getMessageText(msg.message).trim();
-
-      if (!text) {
-        stats.skipped += 1;
-        continue;
-      }
-
-      const messageId = msg.key.id;
-      const senderJid = msg.key.participant || msg.participant;
-      if (!messageId || !senderJid) {
-        stats.skipped += 1;
-        continue;
-      }
-
-      console.log(`[msg] ${jid} → ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`);
-      await sendToCapture({
-        waMessageId: `${jid}:${messageId}`,
-        groupJid: jid,
-        groupName: groupNames.get(jid),
-        senderJid,
-        senderName: msg.pushName || undefined,
-        text,
-        messageAt: getMessageDate(msg.messageTimestamp).toISOString(),
-      });
+      await processMessage(msg, type === "append" ? "history" : "live");
     }
   });
 }

@@ -68,6 +68,7 @@ async function saveMessage(input: WhatsAppMessageInput): Promise<CaptureResult> 
         senderName: input.senderName,
         text: input.text,
         messageAt: new Date(input.messageAt),
+        analyzedAt: null,
       },
     });
 
@@ -98,7 +99,7 @@ export async function GET(req: Request) {
   const messages = await prisma.whatsAppMessage.findMany({
     where: {
       messageAt: { gte: since },
-      ...(includeAnalyzed ? {} : { analyzedAt: null }),
+      ...(includeAnalyzed ? {} : { OR: [{ analyzedAt: null }, { analyzedAt: { isSet: false } }] }),
     },
     orderBy: { messageAt: "asc" },
     take: safeLimit,
