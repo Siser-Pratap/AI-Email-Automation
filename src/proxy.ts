@@ -5,7 +5,7 @@ export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
   
   // Define protected routes
-  const isProtected = path.startsWith('/dashboard') || path.startsWith('/templates') || path.startsWith('/logs');
+  const isProtected = path.startsWith('/dashboard') || path.startsWith('/templates') || path.startsWith('/logs') || path.startsWith('/resumes') || path.startsWith('/whatsapp');
   
   if (isProtected) {
     const token = request.cookies.get('admin_token')?.value;
@@ -21,5 +21,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/templates/:path*', '/logs/:path*'],
+  matcher: ['/dashboard/:path*', '/templates/:path*', '/logs/:path*', '/resumes/:path*', '/whatsapp/:path*'],
 };
