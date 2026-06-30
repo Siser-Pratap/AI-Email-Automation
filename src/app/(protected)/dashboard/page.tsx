@@ -25,12 +25,15 @@ type EmailEntry = {
   emailType: string;
   jobId?: string;
   notes?: string;
+  messageId?: string;
   status: string;
   source: string;
   reviewStatus: string;
   rawText?: string;
   scheduledAt: string;
   lastSentAt?: string;
+  followUpDone?: boolean;
+  followUpAt?: string;
   createdAt: string;
 };
 
@@ -240,6 +243,24 @@ export default function Dashboard() {
     onError: (e: Error) => toast.error(`Failed to send email: ${e.message}`),
   });
 
+  const followUpMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch("/api/send-single", {
+        method: "POST",
+        body: JSON.stringify({ id, followUp: true }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      invalidateAll();
+      toast.success(data.message || "Follow-up reply sent successfully");
+    },
+    onError: (e: Error) => toast.error(`Failed to send follow-up: ${e.message}`),
+  });
+
   const toggleBacklogMutation = useMutation({
     mutationFn: async ({ id, newStatus }: { id: string; newStatus: string }) => {
       const res = await fetch(`/api/emails/${id}`, {
@@ -314,15 +335,23 @@ export default function Dashboard() {
   };
 
   const handleFollowUp = (entry: EmailEntry) => {
+    if (!entry.messageId) {
+      toast.error("Cannot follow up: this email has no original Message-ID. Send the original email first.");
+      return;
+    }
     toast.custom((t) => (
       <div className="bg-white rounded-lg shadow-lg p-4 border border-gray-200 flex gap-3">
         <div className="flex-1">
-          <p className="font-semibold text-gray-900">Send Follow-up Email?</p>
-          <p className="text-sm text-gray-600 mt-1">Queue a follow-up to {entry.hrEmail}. This will reply to the original email thread.</p>
+          <p className="font-semibold text-gray-900">Send Follow-up Reply?</p>
+          <p className="text-sm text-gray-600 mt-1">
+            {entry.followUpDone
+              ? `A follow-up was already sent to ${entry.hrEmail}. Send another reply in the same thread?`
+              : `This will reply to your original email to ${entry.hrEmail} in the same thread.`}
+          </p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => toast.dismiss(t)} className="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Cancel</button>
-          <button onClick={() => { toast.dismiss(t); sendSingleMutation.mutate(entry.id); }} className="px-3 py-1 rounded text-sm font-medium bg-purple-600 text-white hover:bg-purple-700">Send Follow-up</button>
+          <button onClick={() => { toast.dismiss(t); followUpMutation.mutate(entry.id); }} className="px-3 py-1 rounded text-sm font-medium bg-purple-600 text-white hover:bg-purple-700">Send Follow-up</button>
         </div>
       </div>
     ));
@@ -623,7 +652,19 @@ export default function Dashboard() {
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700">{entry.emailType}</span>
                       </td>
-                      <td className="px-6 py-4">{getStatusBadge(entry.status)}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col items-start gap-1.5">
+                          {getStatusBadge(entry.status)}
+                          {entry.followUpDone && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700"
+                              title={entry.followUpAt ? `Followed up on ${new Date(entry.followUpAt).toLocaleDateString()}` : "Follow-up reply sent"}
+                            >
+                              <MessageSquarePlus className="w-3 h-3" /> Followed up
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-between gap-4">
                           <div className="flex items-center gap-1.5 text-gray-500 text-xs">
@@ -696,7 +737,14 @@ export default function Dashboard() {
                                 {entry.status === "SENT" && (
                                   <>
                                     <button onClick={() => handleResend(entry)} disabled={sendSingleMutation.isPending} className="p-1.5 text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors disabled:opacity-50" title="Resend"><RefreshCw className="w-3.5 h-3.5" /></button>
-                                    <button onClick={() => handleFollowUp(entry)} disabled={addMutation.isPending} className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-colors disabled:opacity-50" title="Schedule Follow-up"><MessageSquarePlus className="w-3.5 h-3.5" /></button>
+                                    <button
+                                      onClick={() => handleFollowUp(entry)}
+                                      disabled={followUpMutation.isPending}
+                                      className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${entry.followUpDone ? "text-purple-600 bg-purple-100 hover:bg-purple-200" : "text-emerald-600 bg-emerald-50 hover:bg-emerald-100"}`}
+                                      title={entry.followUpDone ? "Follow-up sent — send another reply" : "Send Follow-up reply"}
+                                    >
+                                      <MessageSquarePlus className="w-3.5 h-3.5" />
+                                    </button>
                                     <button
                                       onClick={() => {
                                         toast.custom((t) => (

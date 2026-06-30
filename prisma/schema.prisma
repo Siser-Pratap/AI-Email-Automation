@@ -20,13 +20,15 @@ model EmailEntry {
   emailType   String    // "REFERRAL", "APPLICATION", "INTEREST", "FOLLOWUP"
   name        String?   // Recipient Name
   jobId       String?   // Job ID for referrals
-  messageId   String?   // Store SMTP Message-ID for thread replies
+  messageId   String?   // Store SMTP Message-ID of the original email (thread root for follow-up replies)
   status        String    @default("PENDING") // "PENDING", "SENT", "FAILED"
   source        String    @default("MANUAL")  // "MANUAL", "WHATSAPP", "LINKEDIN"
   reviewStatus  String    @default("AUTO")    // "AUTO", "PENDING_REVIEW", "APPROVED"
   rawText       String?
   scheduledAt   DateTime  @default(now())
   lastSentAt    DateTime?
+  followUpDone  Boolean   @default(false)     // Whether a follow-up reply has been sent for this email
+  followUpAt    DateTime?                      // When the last follow-up reply was sent
   retryCount    Int       @default(0)
   notes         String?
   createdAt     DateTime  @default(now())
