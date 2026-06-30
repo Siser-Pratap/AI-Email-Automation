@@ -747,17 +747,16 @@ export default function Dashboard() {
                       )}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">
-                            {(entry.name ?? entry.hrEmail).charAt(0).toUpperCase()}
+                          <div className="w-8 h-8 shrink-0 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">
+                            {((entry.name || entry.hrEmail || "?").charAt(0)).toUpperCase()}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
                               <p className="font-medium text-gray-900">{entry.name || entry.hrEmail}</p>
                               {getSourceBadge(entry.source)}
                             </div>
-                            {entry.name
-                              ? <p className="text-xs text-gray-500">{entry.hrEmail}</p>
-                              : <p className="text-xs text-gray-500">Added {new Date(entry.createdAt).toLocaleDateString()}</p>}
+                            {entry.name && <p className="text-xs text-gray-500">{entry.hrEmail}</p>}
+                            <p className="text-xs text-gray-400">Added {new Date(entry.createdAt).toLocaleDateString()}</p>
                           </div>
                         </div>
                       </td>
