@@ -1,12 +1,12 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import {
   Plus, X, Building2, Briefcase, Mail, CalendarClock, CheckCircle2, XCircle, Clock,
   Save, LayoutTemplate, Send, FastForward, ArchiveRestore, Archive, Pencil, User,
   Hash, RefreshCw, MessageSquarePlus, Trash2, ChevronDown, ChevronUp, ShieldCheck,
-  ShieldX, Eye, Play,
+  ShieldX, Eye, Play, Search, ListFilter,
 } from "lucide-react";
 import { toast } from "sonner";
 import { clsx, type ClassValue } from "clsx";
@@ -61,6 +61,13 @@ export default function Dashboard() {
     name: "", hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", jobId: "", notes: "",
   });
 
+  // ── Search & filters ──────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [typeFilter, setTypeFilter] = useState("ALL");
+  const [sourceFilter, setSourceFilter] = useState("ALL");
+  const [followUpFilter, setFollowUpFilter] = useState("ALL"); // ALL | DONE | PENDING
+
   const { data: emails, isLoading, error } = useQuery({
     queryKey: ["emails"],
     queryFn: async () => {
@@ -72,9 +79,37 @@ export default function Dashboard() {
   });
 
   const reviewCount = emails?.filter((e) => e.reviewStatus === "PENDING_REVIEW").length ?? 0;
-  const filteredEmails = activeTab === "REVIEW"
+  const tabEmails = activeTab === "REVIEW"
     ? emails?.filter((e) => e.reviewStatus === "PENDING_REVIEW")
     : emails;
+
+  const searchTerm = searchQuery.trim().toLowerCase();
+  const hasActiveFilters =
+    searchTerm !== "" || statusFilter !== "ALL" || typeFilter !== "ALL" || sourceFilter !== "ALL" || followUpFilter !== "ALL";
+
+  const filteredEmails = tabEmails?.filter((e) => {
+    if (statusFilter !== "ALL" && e.status !== statusFilter) return false;
+    if (typeFilter !== "ALL" && e.emailType !== typeFilter) return false;
+    if (sourceFilter !== "ALL" && e.source !== sourceFilter) return false;
+    if (followUpFilter === "DONE" && !e.followUpDone) return false;
+    if (followUpFilter === "PENDING" && e.followUpDone) return false;
+    if (searchTerm) {
+      const haystack = [e.name, e.hrEmail, e.companyName, e.role, e.jobId, e.notes]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(searchTerm)) return false;
+    }
+    return true;
+  });
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setTypeFilter("ALL");
+    setSourceFilter("ALL");
+    setFollowUpFilter("ALL");
+  };
 
   const pendingReviewEntries = filteredEmails?.filter((e) => e.reviewStatus === "PENDING_REVIEW") ?? [];
   const allSelected = pendingReviewEntries.length > 0 && pendingReviewEntries.every((e) => selectedIds.has(e.id));
@@ -578,6 +613,88 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Search & filter bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search name, email, company, role, job ID, notes…"
+            className="w-full border border-gray-300 rounded-lg pl-9 pr-9 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-shadow"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 rounded"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <ListFilter className="w-4 h-4 text-gray-400 shrink-0" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="SENT">Sent</option>
+            <option value="FAILED">Failed</option>
+            <option value="BACKLOG">Backlog</option>
+          </select>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+          >
+            <option value="ALL">All Types</option>
+            <option value="REFERRAL">Referral</option>
+            <option value="APPLICATION">Application</option>
+            <option value="INTEREST">General Interest</option>
+            <option value="FOLLOWUP">Follow-up</option>
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+          >
+            <option value="ALL">All Sources</option>
+            <option value="MANUAL">Manual</option>
+            <option value="WHATSAPP">WhatsApp</option>
+            <option value="LINKEDIN">LinkedIn</option>
+          </select>
+          <select
+            value={followUpFilter}
+            onChange={(e) => setFollowUpFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+          >
+            <option value="ALL">All Follow-ups</option>
+            <option value="DONE">Followed up</option>
+            <option value="PENDING">Not followed up</option>
+          </select>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" /> Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {hasActiveFilters && !isLoading && !error && (
+        <p className="-mt-4 text-xs text-gray-500">
+          Showing {filteredEmails?.length ?? 0} of {tabEmails?.length ?? 0} {activeTab === "REVIEW" ? "entries to review" : "campaigns"}
+        </p>
+      )}
+
       {/* Table */}
       {isLoading ? (
         <div className="flex justify-center py-12">
@@ -612,9 +729,8 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredEmails?.map((entry) => (
-                  <>
+                  <Fragment key={entry.id}>
                     <tr
-                      key={entry.id}
                       className={cn("hover:bg-gray-50/50 transition-colors", entry.reviewStatus === "PENDING_REVIEW" && "bg-amber-50/40")}
                     >
                       {activeTab === "REVIEW" && (
@@ -776,14 +892,14 @@ export default function Dashboard() {
 
                     {/* Raw text expand row */}
                     {expandedId === entry.id && entry.rawText && (
-                      <tr key={`${entry.id}-raw`} className="bg-amber-50/60">
+                      <tr className="bg-amber-50/60">
                         <td colSpan={activeTab === "REVIEW" ? 6 : 5} className="px-6 py-3">
                           <p className="text-xs font-medium text-gray-500 mb-1">Original message</p>
                           <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{entry.rawText}</p>
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
 
                 {filteredEmails?.length === 0 && (
@@ -793,11 +909,23 @@ export default function Dashboard() {
                         <Mail className="w-6 h-6 text-gray-400" />
                       </div>
                       <p className="text-gray-900 font-medium text-sm">
-                        {activeTab === "REVIEW" ? "No entries awaiting review" : "No campaigns yet"}
+                        {hasActiveFilters
+                          ? "No matching entries"
+                          : activeTab === "REVIEW" ? "No entries awaiting review" : "No campaigns yet"}
                       </p>
                       <p className="text-gray-500 text-sm mt-1">
-                        {activeTab === "REVIEW" ? "Auto-ingested entries will appear here for approval." : "Create your first entry to get started."}
+                        {hasActiveFilters
+                          ? "Try adjusting or clearing your search and filters."
+                          : activeTab === "REVIEW" ? "Auto-ingested entries will appear here for approval." : "Create your first entry to get started."}
                       </p>
+                      {hasActiveFilters && (
+                        <button
+                          onClick={clearFilters}
+                          className="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" /> Clear filters
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}
