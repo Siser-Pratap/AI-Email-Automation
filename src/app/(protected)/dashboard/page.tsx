@@ -1,12 +1,12 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import {
   Plus, X, Building2, Briefcase, Mail, CalendarClock, CheckCircle2, XCircle, Clock,
   Save, LayoutTemplate, Send, FastForward, ArchiveRestore, Archive, Pencil, User,
   Hash, RefreshCw, MessageSquarePlus, Trash2, ChevronDown, ChevronUp, ShieldCheck,
-  ShieldX, Eye, Play,
+  ShieldX, Eye, Play, Search, ListFilter,
 } from "lucide-react";
 import { toast } from "sonner";
 import { clsx, type ClassValue } from "clsx";
@@ -25,12 +25,15 @@ type EmailEntry = {
   emailType: string;
   jobId?: string;
   notes?: string;
+  messageId?: string;
   status: string;
   source: string;
   reviewStatus: string;
   rawText?: string;
   scheduledAt: string;
   lastSentAt?: string;
+  followUpDone?: boolean;
+  followUpAt?: string;
   createdAt: string;
 };
 
@@ -58,6 +61,13 @@ export default function Dashboard() {
     name: "", hrEmail: "", companyName: "", role: "", emailType: "REFERRAL", jobId: "", notes: "",
   });
 
+  // ── Search & filters ──────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [typeFilter, setTypeFilter] = useState("ALL");
+  const [sourceFilter, setSourceFilter] = useState("ALL");
+  const [followUpFilter, setFollowUpFilter] = useState("ALL"); // ALL | DONE | PENDING
+
   const { data: emails, isLoading, error } = useQuery({
     queryKey: ["emails"],
     queryFn: async () => {
@@ -69,9 +79,37 @@ export default function Dashboard() {
   });
 
   const reviewCount = emails?.filter((e) => e.reviewStatus === "PENDING_REVIEW").length ?? 0;
-  const filteredEmails = activeTab === "REVIEW"
+  const tabEmails = activeTab === "REVIEW"
     ? emails?.filter((e) => e.reviewStatus === "PENDING_REVIEW")
     : emails;
+
+  const searchTerm = searchQuery.trim().toLowerCase();
+  const hasActiveFilters =
+    searchTerm !== "" || statusFilter !== "ALL" || typeFilter !== "ALL" || sourceFilter !== "ALL" || followUpFilter !== "ALL";
+
+  const filteredEmails = tabEmails?.filter((e) => {
+    if (statusFilter !== "ALL" && e.status !== statusFilter) return false;
+    if (typeFilter !== "ALL" && e.emailType !== typeFilter) return false;
+    if (sourceFilter !== "ALL" && e.source !== sourceFilter) return false;
+    if (followUpFilter === "DONE" && !e.followUpDone) return false;
+    if (followUpFilter === "PENDING" && e.followUpDone) return false;
+    if (searchTerm) {
+      const haystack = [e.name, e.hrEmail, e.companyName, e.role, e.jobId, e.notes]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(searchTerm)) return false;
+    }
+    return true;
+  });
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("ALL");
+    setTypeFilter("ALL");
+    setSourceFilter("ALL");
+    setFollowUpFilter("ALL");
+  };
 
   const pendingReviewEntries = filteredEmails?.filter((e) => e.reviewStatus === "PENDING_REVIEW") ?? [];
   const allSelected = pendingReviewEntries.length > 0 && pendingReviewEntries.every((e) => selectedIds.has(e.id));
@@ -240,6 +278,24 @@ export default function Dashboard() {
     onError: (e: Error) => toast.error(`Failed to send email: ${e.message}`),
   });
 
+  const followUpMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch("/api/send-single", {
+        method: "POST",
+        body: JSON.stringify({ id, followUp: true }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      invalidateAll();
+      toast.success(data.message || "Follow-up reply sent successfully");
+    },
+    onError: (e: Error) => toast.error(`Failed to send follow-up: ${e.message}`),
+  });
+
   const toggleBacklogMutation = useMutation({
     mutationFn: async ({ id, newStatus }: { id: string; newStatus: string }) => {
       const res = await fetch(`/api/emails/${id}`, {
@@ -314,15 +370,23 @@ export default function Dashboard() {
   };
 
   const handleFollowUp = (entry: EmailEntry) => {
+    if (!entry.messageId) {
+      toast.error("Cannot follow up: this email has no original Message-ID. Send the original email first.");
+      return;
+    }
     toast.custom((t) => (
       <div className="bg-white rounded-lg shadow-lg p-4 border border-gray-200 flex gap-3">
         <div className="flex-1">
-          <p className="font-semibold text-gray-900">Send Follow-up Email?</p>
-          <p className="text-sm text-gray-600 mt-1">Queue a follow-up to {entry.hrEmail}. This will reply to the original email thread.</p>
+          <p className="font-semibold text-gray-900">Send Follow-up Reply?</p>
+          <p className="text-sm text-gray-600 mt-1">
+            {entry.followUpDone
+              ? `A follow-up was already sent to ${entry.hrEmail}. Send another reply in the same thread?`
+              : `This will reply to your original email to ${entry.hrEmail} in the same thread.`}
+          </p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => toast.dismiss(t)} className="px-3 py-1 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Cancel</button>
-          <button onClick={() => { toast.dismiss(t); sendSingleMutation.mutate(entry.id); }} className="px-3 py-1 rounded text-sm font-medium bg-purple-600 text-white hover:bg-purple-700">Send Follow-up</button>
+          <button onClick={() => { toast.dismiss(t); followUpMutation.mutate(entry.id); }} className="px-3 py-1 rounded text-sm font-medium bg-purple-600 text-white hover:bg-purple-700">Send Follow-up</button>
         </div>
       </div>
     ));
@@ -549,6 +613,88 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Search & filter bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search name, email, company, role, job ID, notes…"
+            className="w-full border border-gray-300 rounded-lg pl-9 pr-9 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-shadow"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 rounded"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <ListFilter className="w-4 h-4 text-gray-400 shrink-0" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="PENDING">Pending</option>
+            <option value="SENT">Sent</option>
+            <option value="FAILED">Failed</option>
+            <option value="BACKLOG">Backlog</option>
+          </select>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+          >
+            <option value="ALL">All Types</option>
+            <option value="REFERRAL">Referral</option>
+            <option value="APPLICATION">Application</option>
+            <option value="INTEREST">General Interest</option>
+            <option value="FOLLOWUP">Follow-up</option>
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+          >
+            <option value="ALL">All Sources</option>
+            <option value="MANUAL">Manual</option>
+            <option value="WHATSAPP">WhatsApp</option>
+            <option value="LINKEDIN">LinkedIn</option>
+          </select>
+          <select
+            value={followUpFilter}
+            onChange={(e) => setFollowUpFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+          >
+            <option value="ALL">All Follow-ups</option>
+            <option value="DONE">Followed up</option>
+            <option value="PENDING">Not followed up</option>
+          </select>
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+            >
+              <X className="w-3.5 h-3.5" /> Clear
+            </button>
+          )}
+        </div>
+      </div>
+
+      {hasActiveFilters && !isLoading && !error && (
+        <p className="-mt-4 text-xs text-gray-500">
+          Showing {filteredEmails?.length ?? 0} of {tabEmails?.length ?? 0} {activeTab === "REVIEW" ? "entries to review" : "campaigns"}
+        </p>
+      )}
+
       {/* Table */}
       {isLoading ? (
         <div className="flex justify-center py-12">
@@ -583,9 +729,8 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {filteredEmails?.map((entry) => (
-                  <>
+                  <Fragment key={entry.id}>
                     <tr
-                      key={entry.id}
                       className={cn("hover:bg-gray-50/50 transition-colors", entry.reviewStatus === "PENDING_REVIEW" && "bg-amber-50/40")}
                     >
                       {activeTab === "REVIEW" && (
@@ -602,17 +747,16 @@ export default function Dashboard() {
                       )}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">
-                            {(entry.name ?? entry.hrEmail).charAt(0).toUpperCase()}
+                          <div className="w-8 h-8 shrink-0 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">
+                            {((entry.name || entry.hrEmail || "?").charAt(0)).toUpperCase()}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">
                               <p className="font-medium text-gray-900">{entry.name || entry.hrEmail}</p>
                               {getSourceBadge(entry.source)}
                             </div>
-                            {entry.name
-                              ? <p className="text-xs text-gray-500">{entry.hrEmail}</p>
-                              : <p className="text-xs text-gray-500">Added {new Date(entry.createdAt).toLocaleDateString()}</p>}
+                            {entry.name && <p className="text-xs text-gray-500">{entry.hrEmail}</p>}
+                            <p className="text-xs text-gray-400">Added {new Date(entry.createdAt).toLocaleDateString()}</p>
                           </div>
                         </div>
                       </td>
@@ -623,7 +767,19 @@ export default function Dashboard() {
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700">{entry.emailType}</span>
                       </td>
-                      <td className="px-6 py-4">{getStatusBadge(entry.status)}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col items-start gap-1.5">
+                          {getStatusBadge(entry.status)}
+                          {entry.followUpDone && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-purple-50 text-purple-700"
+                              title={entry.followUpAt ? `Followed up on ${new Date(entry.followUpAt).toLocaleDateString()}` : "Follow-up reply sent"}
+                            >
+                              <MessageSquarePlus className="w-3 h-3" /> Followed up
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center justify-between gap-4">
                           <div className="flex items-center gap-1.5 text-gray-500 text-xs">
@@ -696,7 +852,14 @@ export default function Dashboard() {
                                 {entry.status === "SENT" && (
                                   <>
                                     <button onClick={() => handleResend(entry)} disabled={sendSingleMutation.isPending} className="p-1.5 text-amber-600 bg-amber-50 hover:bg-amber-100 rounded-md transition-colors disabled:opacity-50" title="Resend"><RefreshCw className="w-3.5 h-3.5" /></button>
-                                    <button onClick={() => handleFollowUp(entry)} disabled={addMutation.isPending} className="p-1.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-colors disabled:opacity-50" title="Schedule Follow-up"><MessageSquarePlus className="w-3.5 h-3.5" /></button>
+                                    <button
+                                      onClick={() => handleFollowUp(entry)}
+                                      disabled={followUpMutation.isPending}
+                                      className={`p-1.5 rounded-md transition-colors disabled:opacity-50 ${entry.followUpDone ? "text-purple-600 bg-purple-100 hover:bg-purple-200" : "text-emerald-600 bg-emerald-50 hover:bg-emerald-100"}`}
+                                      title={entry.followUpDone ? "Follow-up sent — send another reply" : "Send Follow-up reply"}
+                                    >
+                                      <MessageSquarePlus className="w-3.5 h-3.5" />
+                                    </button>
                                     <button
                                       onClick={() => {
                                         toast.custom((t) => (
@@ -728,14 +891,14 @@ export default function Dashboard() {
 
                     {/* Raw text expand row */}
                     {expandedId === entry.id && entry.rawText && (
-                      <tr key={`${entry.id}-raw`} className="bg-amber-50/60">
+                      <tr className="bg-amber-50/60">
                         <td colSpan={activeTab === "REVIEW" ? 6 : 5} className="px-6 py-3">
                           <p className="text-xs font-medium text-gray-500 mb-1">Original message</p>
                           <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{entry.rawText}</p>
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
 
                 {filteredEmails?.length === 0 && (
@@ -745,11 +908,23 @@ export default function Dashboard() {
                         <Mail className="w-6 h-6 text-gray-400" />
                       </div>
                       <p className="text-gray-900 font-medium text-sm">
-                        {activeTab === "REVIEW" ? "No entries awaiting review" : "No campaigns yet"}
+                        {hasActiveFilters
+                          ? "No matching entries"
+                          : activeTab === "REVIEW" ? "No entries awaiting review" : "No campaigns yet"}
                       </p>
                       <p className="text-gray-500 text-sm mt-1">
-                        {activeTab === "REVIEW" ? "Auto-ingested entries will appear here for approval." : "Create your first entry to get started."}
+                        {hasActiveFilters
+                          ? "Try adjusting or clearing your search and filters."
+                          : activeTab === "REVIEW" ? "Auto-ingested entries will appear here for approval." : "Create your first entry to get started."}
                       </p>
+                      {hasActiveFilters && (
+                        <button
+                          onClick={clearFilters}
+                          className="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" /> Clear filters
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )}
